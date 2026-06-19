@@ -1,0 +1,512 @@
+Configs: {
+	ManyMoreMobsConfig: {
+		DisplayName: 1. Many More Mobs Settings
+
+		Headers: {
+			Mode: 1. Mode - world NPC capacity
+			CategoryCaps: 2. NPC slots per category
+			SpawnRate: 3. Spawn rate and density
+			Debug: 4. Debugging
+		}
+
+		SpawnRateMultiplier: {
+			Label: Spawn Rate
+			Tooltip:
+				'''
+				How OFTEN the game tries to spawn enemies, higher == more frequent spawns.
+				Stacks on top of the usual vanilla stuff (Water Candle, Battle Potion, biome). 
+				Biome-Specific Modifiers on the Biome Config page take priority over this setting.
+				'''
+		}
+
+		MaxSpawnMultiplier: {
+			Label: Max Active Spawns
+			Tooltip:
+				'''
+				How MANY enemies can be active near you at once (multiplies vanilla limit).
+				Works hand-in-hand with Spawn Rate, rate keeps filling up toward this max. 
+				Vanilla's base is ~5, so you'll want a big value here to get near the Enemy cap. 
+				'''
+		}
+
+		ReduceSpawnsWhenBossActive: {
+			Label: Reduce Spawns During Boss
+			Tooltip:
+				'''
+				While a boss is alive, throttle normal spawns so the fight isn't clogged under a pile of enemies.
+				How hard it throttles is set by 'Boss-Active Spawn Factor' just below.
+				'''
+		}
+
+		BossActiveSpawnFactor: {
+			Label: Boss-Active Spawn Factor
+			Tooltip:
+				'''
+				How much normal spawning carries on while a boss is up: 0 = none, 1 = full spawn rate.
+				No effect if Reduce Spawns During Boss is OFF.
+				'''
+		}
+
+		CapMode: {
+			Label: Mode
+			Tooltip:
+				'''
+				- Default: the vanilla 200-NPC limit, NO engine patching. Safest and most cross-mod friendly.
+					All the spawn, category, and event tuning below still works, just within 200 entity limit.
+				- Expanded: raises the limit to 'Max Total NPCs' (default 750) for the full horde experience.
+
+				!! Single-player only for now. Changing this reloads the mod (a full restart is safest).
+				'''
+		}
+
+		MaxNPCTotal: {
+			Label: Max Total NPCs
+			Tooltip:
+				'''
+				The total NPC budget in EXPANDED mode, shared between the four category slots below.
+				The four slots should add up to this (default: 40 Town + 160 Boss + 25 Critter + 525 Enemies = 750).
+				Ignored in Default mode (it's clamped to vanilla 200). Needs a reload to change.
+				'''
+		}
+
+		TownNPCCap: {
+			Label: Town NPC Slots
+			Tooltip:
+				'''
+				How many town NPCs, pets and wandering merchants you can have.
+				Default: acts as a hard ceiling for friendly NPCs, if there is a free slot, a low-priority enemy/critter gets despawned	to make room if the 200 is full.
+				Expanded: reserved slots down in the native 0-199 zone (shared with Boss), so housing, the map and saving all behave.
+				'''
+		}
+
+		BossCap: {
+			Label: Boss Slots
+			Tooltip:
+				'''
+				Bosses always spawn at full size and never get turned away, a single worm boss eats MANY of these slots (a full Destroyer is ~85 head + body segments), so keep this generous.
+				Default: not a hard limit, just whether to despawn low-priority enemies/critters to ensure a full-size boss spawns.
+				Expanded: reserved in the native 0-199 zone (shared with Town) so boss bars and 'is a boss alive' checks stay vanilla; the other categories are sized around it.
+				'''
+		}
+
+		CritterCap: {
+			Label: Critter Slots
+			Tooltip:
+				'''
+				How many critters can be around at once. Mostly here to stop critter floods.
+				A town (3+ Town NPCs with housing) suppresses enemy spawns, so the place otherwise fills up with owls and birds being way too noisy. (Personal painpoint tbh)
+				Default: just a ceiling within the shared 200.
+				Expanded: lives up in the expanded zone (slots 200+) alongside enemies, outside the native 0-199 array.
+				'''
+		}
+
+		EnemyCap: {
+			Label: Enemy Slots
+			Tooltip:
+				'''
+				How many normal enemies can be active at once, your horde size slider, should be the biggest slice of the budget.
+				Default: just a ceiling within the shared 200.
+				Expanded: enemies primarily live in the expanded zone (slots 200+), while Town + Boss share the native 0-199.
+					!NOTICE!
+					Pushing Enemy + Critter past what the expanded zone holds (Max Total - 200);
+					the overflow spills into the low slots, where it can crowd out Town NPC / Boss spawns. 
+					(despawn-to-make-room can't tell low from high slots in Expanded yet)
+				'''
+		}
+
+		DebugMode: {
+			Label: Debug Mode
+			Tooltip:
+				'''
+				! Leave this off for normal play.
+
+				Auto-writes diagnostics to ManyMoreMobs-state.log on world load and before each save.
+				/debugnpc commands always log anyway.
+				'''
+		}
+	}
+
+	BiomeSpawnConfig: {
+		DisplayName: 2. Biome Spawn Modifiers
+
+		Headers: {
+			Mode: Mode
+			NormalBiomes: Standard Biomes
+			EvilBiomes: Corruption / Crimson / Hallow
+			SpecialBiomes: Special Biomes & Structures
+		}
+
+		UseBiomeSpecificModifiers: {
+			Label: Use Biome-Specific Modifiers
+			Tooltip:
+				'''
+				OFF: ManyMoreMobsConfig page's blanket Spawn Rate / Max Spawn multipliers apply everywhere.
+				ON: each biome below uses its own multipliers instead (1.0 = vanilla biome's baseline).
+				'''
+		}
+
+		Surface: {
+			Label: Surface
+			Tooltip: ""
+		}
+
+		Underground: {
+			Label: Underground
+			Tooltip: ""
+		}
+
+		Caverns: {
+			Label: Caverns
+			Tooltip: ""
+		}
+
+		Ocean: {
+			Label: Ocean
+			Tooltip: ""
+		}
+
+		Space: {
+			Label: Space
+			Tooltip: ""
+		}
+
+		Jungle: {
+			Label: Jungle
+			Tooltip: ""
+		}
+
+		Snow: {
+			Label: Snow
+			Tooltip: ""
+		}
+
+		Desert: {
+			Label: Desert
+			Tooltip: ""
+		}
+
+		UndergroundDesert: {
+			Label: Underground Desert
+			Tooltip: ""
+		}
+
+		Corruption: {
+			Label: Corruption
+			Tooltip: ""
+		}
+
+		Crimson: {
+			Label: Crimson
+			Tooltip: ""
+		}
+
+		Hallow: {
+			Label: Hallow (Hardmode)
+			Tooltip: ""
+		}
+
+		GlowingMushroom: {
+			Label: Glowing Mushroom
+			Tooltip: ""
+		}
+
+		Graveyard: {
+			Label: Graveyard
+			Tooltip: ""
+		}
+
+		Meteor: {
+			Label: Meteor
+			Tooltip: ""
+		}
+
+		Dungeon: {
+			Label: Dungeon
+			Tooltip: ""
+		}
+
+		LihzahrdTemple: {
+			Label: Lihzahrd Temple (post-Plantera)
+			Tooltip: ""
+		}
+
+		Underworld: {
+			Label: Underworld
+			Tooltip: ""
+		}
+	}
+
+	BiomeSpawnRates: {
+		SpawnRateMultiplier: {
+			Label: Spawn Rate Multiplier
+			Tooltip: Higher = enemies spawn more often in this biome (1 = vanilla).
+		}
+
+		MaxSpawnMultiplier: {
+			Label: Max Spawn Multiplier
+			Tooltip: Higher = allows more enemies to spawn in this biome (1 = vanilla).
+		}
+
+		Tooltip: ""
+	}
+
+	SpawnItemsConfig: {
+		DisplayName: 3. Spawn Item Modifiers
+
+		Headers: {
+			MoreSpawns: Spawn Increasing Items
+			FewerSpawns: Spawn Reducing Items
+			Special: Special
+		}
+
+		WaterCandle: {
+			Label: Water Candle
+			Tooltip:
+				'''
+				Strength of the Water Candle effect (held or placed), including its extra deep-cave boost.
+				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				'''
+		}
+
+		BattlePotion: {
+			Label: Battle Potion
+			Tooltip:
+				'''
+				Strength of the Battle Potion buff (more spawns).
+				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				'''
+		}
+
+		PeaceCandle: {
+			Label: Peace Candle
+			Tooltip:
+				'''
+				Strength of the Peace Candle (fewer spawns).
+				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				'''
+		}
+
+		CalmingPotion: {
+			Label: Calming Potion
+			Tooltip:
+				'''
+				Strength of the Calming Potion buff (fewer spawns).
+				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				'''
+		}
+
+		Sunflower: {
+			Label: Sunflower
+			Tooltip:
+				'''
+				Strength of standing near a Sunflower (fewer spawns).
+				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				'''
+		}
+
+		Invisibility: {
+			Label: Invisibility
+			Tooltip:
+				'''
+				Strength of the Invisibility effect's spawn reduction.
+				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				'''
+		}
+
+		AnglerSet: {
+			Label: Angler Armor Set
+			Tooltip:
+				'''
+				Strength of the full Angler armor set's spawn reduction.
+				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				'''
+		}
+
+		Fairy: {
+			Label: Nearby Fairy
+			Tooltip:
+				'''
+				Strength of the spawn reduction while near a fairy.
+				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				'''
+		}
+
+		ShadowCandle: {
+			Label: Shadow Candle (town NPC suppression)
+			Tooltip:
+				'''
+				Separate from the spawn-rate items above: this only governs how strongly the Shadow Candle stops TOWN NPCs from spawning. 
+				1 = full vanilla suppression, 0 = no suppression. Does not directly modify enemy spawn rate.
+				'''
+		}
+	}
+
+	EventsConfig: {
+		DisplayName: 5. Event Length
+
+		Headers: {
+			Length: Event Length
+			OldOnesArmy: Old One's Army
+		}
+
+		InvasionSizeMultiplier: {
+			Label: Invasion Size Multiplier
+			Tooltip:
+				'''
+				Multiplies how many enemies you need to defeat to finish an invasion (Goblin / Frost Legion / Pirate / Martian).
+				1 = vanilla. Recommended keep higher so invasions don't end in seconds at high spawn rates.
+				'''
+		}
+
+		OldOnesArmyNormalSpawnFactor: {
+			Label: Normal Spawns During Old One's Army
+			Tooltip:
+				'''
+				How much of the normal (non-event) spawn rate keeps going while Old One's Army runs, so the Etherian enemies stand out.
+				0 = no normal spawns, 1 = full. Doesn't modify the event enemies.
+				'''
+		}
+
+		OldOnesArmySpawnRateMultiplier: {
+			Label: Old One's Army Spawn Rate
+			Tooltip:
+				'''
+				How much faster the portals pump out Etherian enemies.
+				1 = vanilla. Higher = more pouring out of the gates so the waves don't drag on higher wave lengths.
+				'''
+		}
+
+		OldOnesArmyWaveLengthMultiplier: {
+			Label: Old One's Army Wave Length
+			Tooltip:
+				'''
+				Multiplies how many kills each Old One's Army wave needs.
+				1 = vanilla. Higher = more kills required per wave.
+				'''
+		}
+
+		MoonWaveLengthMultiplier: {
+			Label: Moon Wave Length Multiplier
+			Tooltip:
+				'''
+				Multiplies the points needed to advance each Pumpkin / Frost Moon wave.
+				1 = vanilla. Higher = more time and more enemies per wave before you climb to the next.
+				'''
+		}
+	}
+
+	HordeCombatConfig: {
+		DisplayName: 4. Horde Combat
+
+		Headers: {
+			Melee: Melee
+			Ranged: Ranged
+			Magic: Magic
+		}
+
+		MeleeHitsAllInSwing: {
+			Label: Melee Hits All In Swing
+			Tooltip:
+				'''
+				Lets one true-melee swing (sword / whip) hit EVERY enemy in its arc instead of just one per frame, each enemy still has its own hit cooldown.
+				Affects swung weapons only, not projectiles. Defaults ON, since single-target melee really struggles against the crowds this mod can throw at you.
+				'''
+		}
+
+		MeleeExtraPierce: {
+			Label: Melee Extra Pierce
+			Tooltip:
+				'''
+				Extra enemies a melee projectile (sword beams, swung-weapon projectiles) can pierce through.
+				0 = vanilla.
+				'''
+		}
+
+		MeleeAntiTunnel: {
+			Label: Melee Anti-Tunnel
+			Tooltip:
+				'''
+				Makes fast melee projectiles register on every enemy along their path each frame, instead of skipping over ones they zip past too quickly.
+				Off = vanilla.
+				'''
+		}
+
+		MeleeNoPierceFalloff: {
+			Label: Melee No Pierce Falloff
+			Tooltip:
+				'''
+				Piercing melee projectiles keep their per-hit damage right across a crowd, instead of it shrinking with every enemy pierced.
+				Off = vanilla.
+				'''
+		}
+
+		RangedExtraPierce: {
+			Label: Ranged Extra Pierce
+			Tooltip:
+				'''
+				Extra enemies a ranged projectile (bullets / arrows) can pierce, so guns aren't single-target in a crowd.
+				0 = vanilla.
+				'''
+		}
+
+		RangedAntiTunnel: {
+			Label: Ranged Anti-Tunnel
+			Tooltip:
+				'''
+				Makes fast arrows/bullets register on every enemy along their path each frame, instead of tunnelling through ones they zip past too quickly.
+				Off = vanilla.
+				'''
+		}
+
+		RangedNoPierceFalloff: {
+			Label: Ranged No Pierce Falloff
+			Tooltip:
+				'''
+				Piercing arrows/bullets keep their per-hit damage across a crowd, instead of it shrinking with every enemy pierced.
+				Fixes "infinite pierce" arrows (e.g. Jester's Arrow) reaching the far end of a horde for ~0 damage.
+				Off = vanilla.
+				'''
+		}
+
+		MagicExtraPierce: {
+			Label: Magic Extra Pierce
+			Tooltip:
+				'''
+				Extra enemies a magic projectile can pierce through.
+				0 = vanilla.
+				'''
+		}
+
+		MagicAntiTunnel: {
+			Label: Magic Anti-Tunnel
+			Tooltip:
+				'''
+				Makes fast magic projectiles register on every enemy along their path each frame, instead of skipping over ones they zip past too quickly.
+				Off = vanilla.
+				'''
+		}
+
+		MagicNoPierceFalloff: {
+			Label: Magic No Pierce Falloff
+			Tooltip:
+				'''
+				Piercing magic projectiles keep their per-hit damage across a crowd, instead of it shrinking with every enemy pierced.
+				Off = vanilla.
+				'''
+		}
+	}
+
+	NpcCapMode: {
+		Tooltip: ""
+
+		Default: {
+			Label: Default
+			Tooltip: ""
+		}
+
+		Expanded: {
+			Label: Expanded
+			Tooltip: ""
+		}
+	}
+}

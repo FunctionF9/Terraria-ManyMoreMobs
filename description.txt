@@ -1,0 +1,25 @@
+[h1]Many More Mobs[/h1]
+Expand Terraria's world with far more NPCs at once. Many More Mobs can raise the engine's hard 200-NPC limit up to a configurable total (up to [b]1500[/b]), split across four categories [b][Town / Boss / Critter / Enemy][/b], so the screen fills with a horde while town NPCs and bosses always have room to spawn.
+If you'd prefer vanilla limits, a Default mode leaves the regular 200 cap untouched and instead despawns low-priority mobs to guarantee the important spawns.
+[i]Please DO read the Warnings.[/i]
+
+[h3]Disclaimer[/h3]
+Built with use of [b]AI Assistance[/b]. It's been play-tested across a normal playthrough, but I'm only one guy so proper testing has been limited. The mod patches the game engine at a low level and is still very much in [b]early access[/b] - expect rough edges, please play on a [b]fresh world with a fresh character[/b], and report any bugs/oddities you find.
+
+[h2]Features[/h2]
+[list]
+[*]Raise the 200-NPC cap up to 1500 (Expanded Mode) - town NPCs and bosses stay in the native low slots so housing, saving, boss health bars and the map all keep working.
+[*]Four-category budget (Town / Boss / Critter / Enemy), each with its own cap, so a flood of enemies can never crowd out your town or a boss fight.
+[*]Default Mode keeps the vanilla 200 limit but despawns low-priority mobs so town NPCs and bosses always get their spawn.
+[*]Full-size multi-slot bosses (Destroyer, Eater of Worlds) always fit, even in a packed world.
+[*]Deep controls: spawn-rate, per-biome, spawn-item, event-length, and per-class horde-combat assists.
+[/list]
+
+[h2]Warnings[/h2]
+[list]
+[*][b]SINGLE-PLAYER ONLY[/b] - the cap raise has no multiplayer sync yet and can desync or crash in MP.
+[*][b]EXPERIMENTAL[/b] - Expanded mode patches the engine at load. Play on a fresh world + character (Default mode does no patching if you want to play it safe).
+[*][b]PERFORMANCE[/b] scales with NPC count - very high caps plus high spawn rates will lower FPS.
+[/list]
+
+For the full feature list, config explanations, warnings and version history, please visit the [b]Steam Workshop page[/b].
