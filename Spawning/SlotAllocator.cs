@@ -103,17 +103,20 @@ namespace ManyMoreMobs
             return -1;
         }
 
+        // Pass 2 never hands out a boss-chain member's slot. Chained-worm bodies (e.g. Eater of Worlds) are
+        // flagged CanBeReplacedByOtherNPCs by vanilla, so in a COMPLETELY full array the replace fallback could
+        // otherwise overwrite a worm boss's own segments — the Pass-2 twin of the EntityEvictor's guard.
         private static int ReplaceableAscending(int cap)
         {
             for (int i = 0; i < cap; i++)
-                if (Main.npc[i].CanBeReplacedByOtherNPCs) return i;
+                if (Main.npc[i].CanBeReplacedByOtherNPCs && !NewNpcGate.IsBossChain(i)) return i;
             return -1;
         }
 
         private static int ReplaceableDescending(int cap)
         {
             for (int i = cap - 1; i >= 0; i--)
-                if (Main.npc[i].CanBeReplacedByOtherNPCs) return i;
+                if (Main.npc[i].CanBeReplacedByOtherNPCs && !NewNpcGate.IsBossChain(i)) return i;
             return -1;
         }
     }

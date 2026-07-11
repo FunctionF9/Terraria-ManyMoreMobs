@@ -1,3 +1,3 @@
 displayName = Many More Mobs
 author = FunctionF9
-version = 0.7
+version = 0.7.1

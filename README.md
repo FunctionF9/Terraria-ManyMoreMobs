@@ -4,30 +4,28 @@ MMMmmmmmOD for Terraria to expand the NPC entity cap beyond the default hard 200
 
 # Architecture Overview
 The whole mod exists to do one thing: lift Terraria's hard **200-NPC engine limit** to a configurable
-total (up to 1500) without breaking the rest of the game. Here's the gist of how that was made possible.
+total (tested up to 1500) without breaking the rest of the game.
 
 
 ## "The wall"
 Terraria pins the NPC count at 200 in a few stubborn ways: `Main.maxNPCs` is a `static readonly int = 200`,
 `Main.npc` is a 201-long array, dozens of engine loops are hardcoded as `for (i = 0; i < 200; i++)`, and a
 pile of companion arrays (per-projectile hit immunity, melee cooldowns, etc.) are sized to 200. Just making
-the array bigger does nothing on its own — the loops still stop at 200, and the per-NPC arrays throw the
+the array bigger does nothing on its own, the loops still stop at 200, and the per-NPC arrays throw the
 moment anything touches slot 200+.
 
 
 ## Breaking through (two .NET gotchas)
-- **You can't set `Main.maxNPCs` with reflection** — it's an init-only `readonly`, which throws. We set it by
-  emitting a tiny `stsfld` via `DynamicMethod` instead (`Engine/MaxNpcCapRaise`).
-- **You can't trust reads of it either** — the JIT bakes the `readonly` 200 straight into compiled code, so
-  even after writing 750 the old reads still see 200. So the real source of truth is our own *mutable* field
-  `EngineState.NpcCap`, and the IL patches inject reads of *that*, never `Main.maxNPCs`.
+- **You can't set `Main.maxNPCs` with reflection** - it's an init-only `readonly`, which throws. 
+    We set it by emitting a tiny `stsfld` via `DynamicMethod` instead (`Engine/MaxNpcCapRaise`).
+- **You can't trust reads of it either** — the JIT bakes the `readonly` 200 straight into compiled code,
+    so even after writing 750 the old reads still see 200. So the real source is our own *mutable* field `EngineState.NpcCap`, and the IL patches inject reads of *that*, never `Main.maxNPCs`.
 
 
 ## The moving parts
-- **Raise + resize** (`Engine/MaxNpcCapRaise`, `Engine/EngineArrayResizer`) — set the cap, then grow
-  `Main.npc` and every NPC-indexed companion array to match, so slot 200+ is safe to touch.
-- **IL patches** (`Engine/EngineILPatcher`, via tModLoader's official `MonoModHooks`) — rewrite the engine's
-  hardcoded `200` loop bounds to read `EngineState.NpcCap`: the per-tick update, draw, spawn and combat loops.
+- **Raise + resize** (`Engine/MaxNpcCapRaise`, `Engine/EngineArrayResizer`), set the cap,
+    then grow `Main.npc` and every NPC-indexed companion array to match, so slot 200+ is safe to touch.
+- **IL patches** (`Engine/EngineILPatcher`, via tModLoader's official `MonoModHooks`), rewrite the engine's hardcoded `200` loop bounds to read `EngineState.NpcCap`: the per-tick update, draw, spawn and combat loops.
 - **Slot zoning** (`Spawning/SlotAllocator`) — the key trick. Town NPCs and boss heads are steered into the
   native **0–199** slots, while enemies and critters fill the **200+** "expanded" slots. Because every vanilla
   system that only scans the first 200 slots (housing, world save, boss health bars, the map, event checks)
@@ -53,10 +51,14 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 (where NPCs land) and `Spawning/NewNpcGate` (the spawn chokepoint + categories). MIT-licensed, so go wild.
 
 
+
 # Versioning History
-Version history for Many More Mobs. (Full feature list, config explanations and warnings live on the
-Steam Workshop page; this is the running version log moved off the Workshop page to fit Steam's
-8000-byte description limit.)
+## Version 0.7.1
+- In-game enemy counters patched, no longer restricted to single byte so can count past 255.
+- Lifeform Analyzer patched, default scan only 0-199 slots, storing found NPC's slot in a byte, so rare creatures living past slot 200 were invisible or grabbed from wrong slot due to looping.
+    # Lifeform Analyzer got minor QoL fix, prioritize showing rescuable NPCs over golden critters or rare enemies.
+- Spawn worm-segment guard, in packed world slot-replace fallback no longer overwrite multi-segment boss's own segments.
+- Rescue NPCs patched, correctly identifies as town NPCs and lives in low slots in Expanded mode.
 
 ## Version 0.7
 - New Mode setting: Default (vanilla 200 limit, no engine patching) vs Expanded (raised cap).
@@ -87,9 +89,6 @@ Steam Workshop page; this is the running version log moved off the Workshop page
 ## Version 0.1
 - At this stage it was a simple spawn-rate modifier mod, inspired by youtuber @wildlmao's 30X spawn-rate challenge run.
 
-# Credits & Acknowledgements
 
-- **[tml-NPCUnlimiter](https://github.com/DarioDaF/tml-NPCUnlimiter)** by DarioDaF — the original reference
-  this mod's cap-raising groundwork was reverse-engineered and learned from, before being reimplemented here.
-  Huge thanks for charting the first steps past the 200-NPC wall.
-- **@wildlmao** — whose 30X spawn-rate challenge run sparked the whole idea in the first place.
+# Credits & Acknowledgements
+- **[tml-NPCUnlimiter](https://github.com/DarioDaF/tml-NPCUnlimiter)** by DarioDaF, original reference this mod's cap-raising groundwork was reverse-engineered and learned from, before being reimplemented here.

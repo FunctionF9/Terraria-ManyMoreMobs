@@ -167,13 +167,23 @@ namespace ManyMoreMobs
             // Use the broad NPC-member check so all of them are widened, not just the CanBeChasedBy ones.
             PatchNpcLoops(mod, typeof(Projectile), "VanillaAI");
 
-            // Cosmetic: the Radar / Cell Phone "X enemies nearby" count loop (in Main.DrawInfoAccs) only
-            // scans 0-199, so with enemies in the bonus zone it reads "No enemies nearby". Anchored patch so
-            // the other info-accessory loops in this method are untouched. (Count saturates ~255 — the
-            // vanilla accThirdEyeNumber field is a byte — but at least it no longer reads zero.)
-            Apply(mod, "Main.DrawInfoAccs (enemy radar count)",
+            // Info accessories (in Main.DrawInfoAccs) that scan NPCs only cover 0-199 — with enemies/critters
+            // living in the bonus zone, the Radar reads "No enemies nearby" and the Lifeform Analyzer misses
+            // nearly everything it exists to find (rare critters/enemies). Anchored patches (so the other
+            // info-accessory loops in this method are untouched) that widen both scans AND fix their byte-sized
+            // storage: the Radar's count byte caps at 255 (true count tallied in an int and displayed instead);
+            // the Analyzer stores the found NPC's SLOT INDEX in a byte (slot 300 would truncate to 44 and name
+            // the wrong NPC — true slot tracked in an int instead).
+            Apply(mod, "Main.DrawInfoAccs (radar + lifeform analyzer)",
                 typeof(Main).GetMethod("DrawInfoAccs", BindingFlags.NonPublic | BindingFlags.Instance),
-                Patch_ThirdEyeCount);
+                Patch_InfoAccessories);
+
+            // The mouse hover + right-click interaction scan (name-on-hover, chat, and the bound-NPC rescue
+            // path all live in this one loop) is hardcoded 0-199. Rescue NPCs are kept in the low zone by
+            // categorization (see NpcCategorizer.IsRescueNpc), but widen the scan anyway so any friendly that
+            // still lands high (low zone full -> fallback, modded friendlies) can be hovered and rescued.
+            // Verified: the method's only `200` literal is this loop bound.
+            PatchNpcLoops(mod, typeof(Main), "HoverOverNPCs");
 
             // Whip / minion target marker: the reticle drawn over the minion-attack-target (and whip-tagged)
             // NPC is in DrawInterface_1_2_DrawEntityMarkersInWorld, which scans only 0-199 — so no marker
@@ -444,11 +454,15 @@ namespace ManyMoreMobs
             c.Emit(OpCodes.Conv_I4);             // -> int  => loop runs i < localNPCImmunity.Length
         }
 
-        // Anchored on the unique NPC.dontCountMe read inside the radar count loop, then widen that loop's bound.
-        // Also clamp the `accThirdEyeNumber++` so the byte counter saturates at 255 instead of overflowing
-        // (the wrap is what made the Cell Phone "X enemies nearby" reset to zero and recount past ~256).
-        private static void Patch_ThirdEyeCount(ILContext il)
+        // Fixes the two NPC-scanning info accessories in Main.DrawInfoAccs. Radar: anchored on the unique
+        // NPC.dontCountMe read inside its count loop, widen the loop bound, then (a) route
+        // `accThirdEyeNumber++` through SaturatingByteInc, which saturates the vanilla byte at 255 (so its
+        // "any enemies nearby?" gate stays sane) while tallying the TRUE count into an int, and (b) swap the
+        // displayed number to read that int, so the HUD shows the real count instead of "255".
+        // Lifeform Analyzer: see Patch_LifeformAnalyzer below.
+        private static void Patch_InfoAccessories(ILContext il)
         {
+            Patch_LifeformAnalyzer(il);
             var c = new ILCursor(il);
             FieldInfo dontCountMe = typeof(NPC).GetField(nameof(NPC.dontCountMe));
 
@@ -472,6 +486,96 @@ namespace ManyMoreMobs
             {
                 ModRef?.Logger.Warn("[MMM] radar count clamp not applied (accThirdEyeNumber++ anchor not found).");
             }
+
+            // Show the TRUE count instead of the byte-capped 255. The displayed number is the `accThirdEyeNumber`
+            // read fed into GetTextValue("GameUI.EnemiesNearby", ...); anchor on that string literal, then swap
+            // the following `ldfld accThirdEyeNumber` for a call returning our uncapped int (the call consumes
+            // the Player the field-read had loaded, so the stack stays balanced), and widen the box that follows
+            // from System.Byte to System.Int32 so values >255 aren't truncated to a byte.
+            var c3 = new ILCursor(il);
+            if (c3.TryGotoNext(i => i.MatchLdstr("GameUI.EnemiesNearby")) && c3.TryGotoNext(i => i.MatchLdfld(eye)))
+            {
+                c3.Next.OpCode = OpCodes.Call;
+                c3.Next.Operand = il.Import(typeof(EngineState).GetMethod(nameof(EngineState.GetRadarDisplayCount)));
+                if (c3.TryGotoNext(i => i.OpCode == OpCodes.Box))
+                    c3.Next.Operand = il.Import(typeof(int));
+            }
+            else
+            {
+                ModRef?.Logger.Warn("[MMM] radar true-count display not applied (EnemiesNearby anchor not found).");
+            }
+        }
+
+        // Lifeform Analyzer (rare creature detector) — three fixes, all anchored inside its block (which sits
+        // BEFORE the radar block in DrawInfoAccs, scanning `npc[k].rarity > 0`, which covers rare enemies AND
+        // rare critters like golden critters / the Truffle Worm — exactly what lives in the expanded zone):
+        //  1. widen its `< 200` scan loop to the cap,
+        //  2. its found-NPC SLOT INDEX is stored in `byte accCritterGuideNumber` (slot 300 truncates to 44 and
+        //     the HUD names the wrong NPC) — record the true slot via TrackLifeformSlot before the byte store,
+        //  3. the cached read of that byte on non-scan frames -> GetLifeformSlot (the true slot), and widen the
+        //     display's own `num < 200` validity check so expanded-zone slots aren't rejected.
+        private static void Patch_LifeformAnalyzer(ILContext il)
+        {
+            var c = new ILCursor(il);
+            FieldInfo rarity = typeof(NPC).GetField(nameof(NPC.rarity));
+            FieldInfo guide = typeof(Player).GetField(nameof(Player.accCritterGuideNumber));
+
+            // 1. Scan loop bound: the first NPC.rarity read in the method is inside the analyzer's scan loop;
+            // the loop's `ldc.i4 200` bound check sits just after the body.
+            if (!c.TryGotoNext(i => i.MatchLdfld(rarity)))
+                throw new Exception("analyzer rarity anchor not found");
+            if (!c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+                throw new Exception("analyzer scan loop bound not found");
+            ReplaceWithNpcCap(c, il);
+
+            // 3b. Display validity check `num14 < 200` — the next 200 after the loop bound, still inside the
+            // analyzer block (the radar's own 200 comes later and is handled by the radar patch).
+            if (!c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+                throw new Exception("analyzer display bound not found");
+            ReplaceWithNpcCap(c, il);
+
+            // 2. Store site: `accCritterGuideNumber = (byte)num14` compiles to `ldloc num14; conv.u1; stfld`.
+            // Insert a pass-through recorder before the truncation so the true slot lands in our int.
+            var c2 = new ILCursor(il);
+            if (c2.TryGotoNext(MoveType.Before, i => i.OpCode == OpCodes.Conv_U1, i => i.MatchStfld(guide)))
+            {
+                c2.Emit(OpCodes.Call, il.Import(typeof(EngineState).GetMethod(nameof(EngineState.TrackLifeformSlot))));
+            }
+            else
+            {
+                ModRef?.Logger.Warn("[MMM] analyzer slot tracker not applied (accCritterGuideNumber store anchor not found).");
+            }
+
+            // 3a. Cached read on non-scan frames: swap the byte field read for the true tracked slot (the call
+            // consumes the Player the field-read had loaded, so the stack stays balanced).
+            var c3 = new ILCursor(il);
+            if (c3.TryGotoNext(i => i.MatchLdfld(guide)))
+            {
+                c3.Next.OpCode = OpCodes.Call;
+                c3.Next.Operand = il.Import(typeof(EngineState).GetMethod(nameof(EngineState.GetLifeformSlot)));
+            }
+            else
+            {
+                ModRef?.Logger.Warn("[MMM] analyzer true-slot read not applied (accCritterGuideNumber read anchor not found).");
+            }
+
+            // 4. QoL: prioritize rescueable NPCs. The scan picks by raw rarity, so a golden critter (3+)
+            // out-shines a Bound Goblin (1) and the display just reads "Gold Bunny" while your Goblin
+            // Tinkerer waits. Swap every rarity read in the block for LifeformPriorityScore — verified: the
+            // analyzer's three reads (loop compare, best-so-far store, display validity check) are the ONLY
+            // NPC.rarity reads in DrawInfoAccs, and all three must agree or a boosted pick would be
+            // re-out-scored / rejected at display time.
+            var c4 = new ILCursor(il);
+            var score = il.Import(typeof(EngineState).GetMethod(nameof(EngineState.LifeformPriorityScore)));
+            int swapped = 0;
+            while (swapped < 3 && c4.TryGotoNext(i => i.MatchLdfld(rarity)))
+            {
+                c4.Next.OpCode = OpCodes.Call;
+                c4.Next.Operand = score;
+                swapped++;
+            }
+            if (swapped != 3)
+                ModRef?.Logger.Warn($"[MMM] analyzer rescue-priority incomplete ({swapped}/3 rarity reads swapped).");
         }
 
         // Enemy health bars: widen the two ascending `< 200` helper loops AND the descending main draw loop,

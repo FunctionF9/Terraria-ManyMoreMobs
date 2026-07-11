@@ -1,15 +1,17 @@
 [h1]Many More Mobs[/h1]
-Expand the limits of Terraria's world with far more NPCs at once. Many More Mobs can raise the engine's hard 200-NPC limit to a configurable total (currently hard-capped at [b]1500[/b]).
-The Max NPC budget is split across four categories [b][Town / Boss / Critter / Enemy][/b], so the screen can fill up with a horde while town NPCs and bosses always have room to spawn.
-If you would prefer vanilla limits, a Default mode leaves the regular 200 cap untouched and instead despawns low-priority mobs to guarantee important spawns like Town NPCs and Bosses.
-[i]Please DO read the Warnings seciont[/i]
+Expand the limits of Terraria's world with far more NPCs at once. Many More Mobs can raise the engines hard 200-NPC limit to a configurable total (currently hard-capped at [b]1500[/b]).
+The Max NPC budget is split across four categories [b][Town / Boss / Critter / Enemy][/b], letting the screen fill up with an expansive horde of enemies while town NPCs and bosses always have room to spawn.
+If you would prefer vanilla 200-limit, a Default mode leaves the regular 200 entity cap untouched, instead despawning low-priority mobs to guarantee important spawns like Town NPCs and Bosses.
+[i]Please [b]DO[/b] read the Warnings section[/i]
 
 
 [h3]Disclaimer[/h3]
 This mod was built with use of [b]AI Assistance[/b]. 
-The mod has been play-tested across a normal playthrough, but I'm only one guy, so proper testing has been limited so far.
+The mod has been play-tested across 1 full playthrough, but I'm only one guy, so thorough testing has been limited.
 The mod patches the game engine at a low level and is still very much in [b]early access[/b]!
-Expect rough edges, please play on a [b]fresh world, with a fresh character[/b], and please report any bugs/oddities you find, feedback would really help prioritize next fixes.
+Expect rough edges, please play on a [b]fresh world, with a fresh character[/b], please report any bugs/oddities you find, feedback would really help prioritize next fixes.
+[b]Github:[/b] https://github.com/FunctionF9/Terraria-ManyMoreMobs
+
 
 
 [h2]Features[/h2]
@@ -19,23 +21,24 @@ Expect rough edges, please play on a [b]fresh world, with a fresh character[/b],
 [*]     Town NPCs and Bosses stay in the native low slots, so housing, saving, boss health bars and the map all keep working; enemies and critters fill the expanded slots.
 
 [*][b]Four-category budget[/b]
-[*]     Town / Boss / Critter / Enemy, each with its own slot count, so a flood of enemies can never crowd out your town or a boss fight.
+[*]     Town / Boss / Critter / Enemy, each with its own slot count, so a flood of enemies will never block out town NPC spawns or a boss fight.
 
 [*][b]Default Mode + despawn-to-make-room[/b]
-[*]     Keep the vanilla 200 limit but still get smart prioritisation for high spawn-rate playthroughs:
+[*]     Keeps the vanilla 200 limit but still get smart prioritization for high spawn-rate playthroughs.
 [*]         Low-priority mobs (critters first, then far-off enemies) are despawned to prioritize town NPCs and bosses.
 
 [*][b]Full-size multi-slot Bosses always fit[/b]
 [*]    The Destroyer and Eater of Worlds always spawn with every segment, even in a packed world.
 
 [*][b]Spawn controls[/b]
-[*]    Global spawn-rate and max-active-spawns multipliers, plus optional per-biome overrides for fine-grained pacing.
+[*]    Global 'spawn rate' and 'max active spawns' multipliers, with optional per biome overrides for fine-grained pacing instead.
 
 [*][b]Spawn-item tuning[/b]
 [*]    Config page to amplify, weaken or disable every spawn-affecting item (Water Candle, Battle Potion, Peace Candle, Calming Potion etc...).
 
 [*][b]Event scaling[/b]
-[*]    Lengthen invasions and Pumpkin/Frost Moons so they aren't trivially short at high spawn rates, plus Old One's Army spawn-rate and wave-length controls.
+[*]    Lengthen invasions and Moon Events so they don't become trivially short at high spawn rates.
+[*]    Old One's Army spawn-rate and wave-length controls.
 
 [*][b]Horde combat assists[/b]
 [*]    Opt-in, per damage class (Melee / Ranged / Magic): extra pierce, anti-tunnel (fast projectiles hit every enemy along their path), and no pierce-falloff (piercing shots keep full damage across a crowd), plus "melee hits all in swing".
@@ -43,14 +46,13 @@ Expect rough edges, please play on a [b]fresh world, with a fresh character[/b],
 
 
 [h2]Config Explanations[/h2]
-Most settings are explained by their in-game tooltips. The bigger concepts:
-
 [b]Mode: Default vs Expanded[/b]
 [list]
-[*][b]Default[/b] keeps Terraria's 200-NPC limit and does [b]no engine patching[/b] - the safest, most compatible choice. 
+[*][b]Default[/b] keeps Terraria's 200-NPC limit and does [b]no engine patching[/b] - 
+the safest, most compatible choice. 
 [*]     The category caps become [b]ceilings[/b] within the shared 200, and the mod despawns low-priority mobs so Town and Boss spawns always succeed.
 
-[*][b]Expanded[/b] raises the limit to [b]Max Total NPCs[/b]. Here the four category caps are a hard [b]reservation[/b] and should sum to the total (default 40 + 160 + 25 + 525 = 750). 
+[*][b]Expanded[/b] raises the limit to [b]Max Total NPCs[/b]. Here the four category caps are a hard [b]reservation[/b] and should, for the best experience, sum to the value of Max Total NPCs (default 40 + 160 + 25 + 525 = 750). 
 [*]     Town and Boss live in the native 0-199 slots; Critter and Enemy live in the expanded 200+ slots.
 
 [*]Changing Mode, Max Total, or the caps requires a mod reload.
@@ -59,7 +61,7 @@ Most settings are explained by their in-game tooltips. The bigger concepts:
 
 [h2]Expanded Slots Explained[/h2]
 [i]Only relevant if you're playing with Expanded Mode [b]ON[/b][/i].
-Picture the NPC list as two stretches: the [b]Default[/b] engine slots (0-199) and the [b]Expanded[/b] slots stacked on top (up to your Max Total NPCs - so up to default 750, or hard 1500 limit).
+Picture the NPC list as two stretches: the [b]Default[/b] engine slots (0-199) and the [b]Expanded[/b] slots stacked on top (up to your Max Total NPCs).
 [list]
 [*][b]Town NPCs and Bosses[/b] fill from the bottom up, so they settle into the Default 0-199 slots. That's the whole trick to keeping housing, saving, boss health bars and the map working like vanilla - which is why their caps only go up to 200 combined.
 [*][b]Critters and Enemies[/b] fill from the top down, so they live up in the Expanded slots.
@@ -70,8 +72,9 @@ The four caps decide how that budget gets split:
 [*]Ideally they add up to your Max Total NPCs (the defaults already do: 40 + 160 + 25 + 525 = 750).
 [*]If they add up to [b]LESS[/b], the leftover slots simply sit empty - totally fine.
 [*]If they add up to [b]MORE[/b], the caps scale down evenly so everything still fits under the cap.
-[*]The zones aren't hard walls, if the Expanded slots ever completely fill, enemies fall back into any spare Default slots instead of refusing to spawn. With sensible caps you'll never see it, but it means the mod won't just "stop spawning".
-[*][b]One catch[/b] - if you DO overflow the Expanded slots (Enemy + Critter set higher than Max Total - 200), the enemies spilling down into the low slots can crowd out Town NPC / Boss spawns.
+[*]The zones aren't hard walls, if the Expanded slots ever completely fill, enemies fall back into any spare Default slots instead of refusing to spawn.
+[*][b]One catch[/b] - if you DO overflow the Expanded slots (Enemy + Critter set 
+ combined value equals higher than; Max Total NPCs - 200), the enemies spilling down into the low slots can crowd out Town NPC / Boss spawns.
 [*]     The despawn-to-make-room safety net doesn't yet tell low- from high-slots in Expanded, so recommend keeping Enemy + Critter caps within the Expanded space (the defaults already do) and you're golden. 
 [*]         For the best Expanded experience; MaxNPCTotal = ((TownNPCCap + BossCap equal 200) + (CritterCap + EnemyCap = (MaxNPCTotal - 200))). A proper fix is on the way.
 [/list]
@@ -85,8 +88,8 @@ The four caps decide how that budget gets split:
 [*][b]EXPERIMENTAL CAP RAISE[/b] - Expanded mode patches the engine at load. Default mode does no patching if you want to play it safe.
 [*]     If running Expanded mode, test on a [b]backup world[/b] first or preferably create a new world + character for playthrough.
 
-[*][b]PERFORMANCE[/b] scales with NPC count - very high caps plus high spawn rates will lower FPS.
-[*]     Major known limitation here is excessive amounts of projectiles from high enemy count leads to slowdown.
+[*][b]PERFORMANCE[/b] scales with NPC count - very high caps plus high spawn rates will most likely lower FPS.
+[*]     From testing there, a known limitation here is excessive amounts of projectiles from high enemy count leads to slowdown.
 
 [*][b]MOD COMPATIBILITY[/b] - other mods that also add lots of NPCs or touch the spawn system may interact unpredictably with Expanded mode.
 [*]     Some light cross-mod testing has been done with less intrusive modes like [Smarth Regrowth], [Autofish], and [Cheat Sheet].
@@ -97,12 +100,11 @@ The four caps decide how that budget gets split:
 [h2]Known Bugs and Limitations[/h2]
 [list]
 [*]Multiplayer is not supported [i]yet[/i] (ref Warnings above).
-[*]Config sliders snap and jank with wide ranges, a limitation of tModLoader's default config screen. A nicer custom config UI the dream for later.
+[*]Config sliders snap and jank with wide ranges, a limitation of tModLoader's default config screen. A nicer custom config UI is a dream for later.
 [*]Expanded mode only: if you push Enemy/Critter caps past what the Expanded slots can hold (Max Total - 200), the overflow can block Town NPC / Boss spawns - despawn-to-make-room doesn't tell low from high slots in Expanded yet. Keep the four caps within Max Total NPCs (the defaults do). Fix coming.
-[*]At very high spawn rates, town NPCs will be easily killed by the horde (especially from wall-phasing hardmode enemies, or goblin warlocks).
-[*]The on-screen "enemies nearby" counter (Cell Phone / Radar) tops out at 255, byte limit not yet patched.
 [*]Enemies in the expanded slots don't yet have custom map icons / bestiary polish.
-[*]The Wyvern can occasionally spawn at reduced length in a fully packed world.
+[*]The Wyvern will mostly spawn at reduced length in a fully packed world.
 [*]On max spawn rate, noticeable churn/slowdown during Lunar Pillars event due to amount of projectiles from enemies.
 [/list]
 This list will grow and shrink as playtesters report issues - thank you for the feedback!
+[quote=tModLoader ManyMoreMobs]

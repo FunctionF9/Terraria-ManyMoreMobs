@@ -37,11 +37,44 @@ namespace ManyMoreMobs
         }
 
         /// <summary>
+        /// Rescue / transform-into-town NPCs: the bound Goblin/Wizard/Mechanic, Webbed Stylist, Sleeping
+        /// Angler, Unconscious Man, stranded Golfer, the Tortured Soul, and the bound town slimes.
+        /// <para/>
+        /// The engine does NOT town-flag these (<c>ActsLikeTownNPC</c> covers only the Skeleton Merchant), so
+        /// by flags they'd classify as Enemy — zoned into the high slots where the mouse-interaction scan
+        /// (<c>Main.HoverOverNPCs</c>, hardcoded 0-199) can never hover or right-click them, subject to the
+        /// Enemy cap (often FULL at horde spawn rates, silently blocking their spawn), and evictable by
+        /// despawn-to-make-room. Worst of all, rescuing transforms them IN THE SAME SLOT — a high-slot rescue
+        /// would strand the resulting town NPC above 200 where housing can't see it. So: classify them as
+        /// Town — placed in the low zone, never evicted, guaranteed to spawn.
+        /// </summary>
+        public static bool IsRescueNpc(int type) => type switch
+        {
+            NPCID.BoundGoblin => true,          // 105 -> Goblin Tinkerer
+            NPCID.BoundWizard => true,          // 106 -> Wizard
+            NPCID.BoundMechanic => true,        // 123 -> Mechanic
+            NPCID.WebbedStylist => true,        // 354 -> Stylist
+            NPCID.SleepingAngler => true,       // 376 -> Angler
+            NPCID.DemonTaxCollector => true,    // 534 Tortured Soul -> Tax Collector (Purification Powder, in place)
+            NPCID.BartenderUnconscious => true, // 579 Unconscious Man -> Tavernkeep
+            NPCID.GolferRescue => true,         // 589 -> Golfer
+            NPCID.BoundTownSlimeOld => true,    // 685 Elder Slime (Old Shaking Chest)
+            NPCID.BoundTownSlimePurple => true, // 686
+            NPCID.BoundTownSlimeYellow => true, // 687
+            _ => false,
+        };
+
+        /// <summary>
         /// Classify directly from an NPC's flags (no worm-segment indirection). Public so the type-table
         /// builder can reuse the exact same logic on a freshly <c>SetDefaults</c>-ed scratch NPC.
         /// </summary>
         public static NpcCategory ClassifyByFlags(NPC npc)
         {
+            // Rescue NPCs first: their engine flags say Enemy, but they must live in the town zone
+            // (see IsRescueNpc). Checked before the flag tests so nothing else can misfile them.
+            if (IsRescueNpc(npc.type))
+                return NpcCategory.Town;
+
             if (npc.isLikeATownNPC)
                 return NpcCategory.Town;
 
