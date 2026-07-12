@@ -56,7 +56,7 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 ## Version 0.7.1
 - In-game enemy counters patched, no longer restricted to single byte so can count past 255.
 - Lifeform Analyzer patched, default scan only 0-199 slots, storing found NPC's slot in a byte, so rare creatures living past slot 200 were invisible or grabbed from wrong slot due to looping.
-    # Lifeform Analyzer got minor QoL fix, prioritize showing rescuable NPCs over golden critters or rare enemies.
+    - Lifeform Analyzer got minor QoL fix, prioritize showing rescuable NPCs over golden critters or rare enemies.
 - Spawn worm-segment guard, in packed world slot-replace fallback no longer overwrite multi-segment boss's own segments.
 - Rescue NPCs patched, correctly identifies as town NPCs and lives in low slots in Expanded mode.
 
