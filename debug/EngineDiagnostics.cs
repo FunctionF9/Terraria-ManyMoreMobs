@@ -115,6 +115,7 @@ namespace ManyMoreMobs
                 sb.AppendLine($"effective maxSpawns (near-you limit): {SpawnRateMultiplier.InMax} -> {SpawnRateMultiplier.OutMax}");
                 sb.AppendLine($"source: {SpawnRateMultiplier.UsedSource}  (rate x{SpawnRateMultiplier.UsedRateMult:0.##}, max x{SpawnRateMultiplier.UsedMaxMult:0.##})");
                 sb.AppendLine($"boss throttle: {(SpawnRateMultiplier.BossThrottled ? "ACTIVE" : "off")}");
+                sb.AppendLine(RareSpawnNormalizer.Describe());
             }
 
             // Active spawn-item modifiers on this player (and the strength each is configured at).
@@ -178,6 +179,70 @@ namespace ManyMoreMobs
             int after = target.life;
             return $"hittest: slot {slot} type {target.type} '{SafeName(target)}' dist {(int)dist}  life {before} -> {after}  (SimpleStrikeNPC reported {dealt})  "
                  + (before != after ? "=> NPC TOOK DAMAGE (fault is in projectile reach, not the NPC)" : "=> NPC IGNORED direct damage (NPC-side state)");
+        }
+
+        /// <summary>
+        /// Live event state: invasions, moon waves, Lunar pillars and Old One's Army — plus the LOW-vs-HIGH slot
+        /// split of the NPCs each one depends on.
+        /// <para/>
+        /// That split is the whole point. Most "event X is broken with this mod" reports are an engine loop that
+        /// still stops at slot 200: the event works perfectly while its NPCs happen to land low, and silently
+        /// fails once they spill into the expanded zone — which is exactly why these bugs look intermittent and
+        /// why one player sees them and another doesn't. If a counter here reads 0 while the matching "high"
+        /// column is non-zero, that's an unpatched loop, not bad luck. Cross-reference tools/audit-report.md.
+        /// </summary>
+        public static string BuildEventReport()
+        {
+            var sb = new StringBuilder();
+            int cap = EngineState.NpcCap;
+            const int lowZone = 200; // the native engine range every unpatched vanilla loop is limited to
+
+            sb.AppendLine($"NpcCap={cap}  npc.Length={Main.npc.Length}  GameUpdateCount={Main.GameUpdateCount}");
+
+            // Invasions. invasionProgressNearInvasion is set by Main.CheckInvasionProgressDisplay, which we
+            // patch — if it reads False while invaders are on screen, that patch stopped matching.
+            sb.AppendLine($"INVASION type={Main.invasionType} size={Main.invasionSize}/{Main.invasionSizeStart} x={(int)Main.invasionX} delay={Main.invasionDelay}");
+            sb.AppendLine($"  progress={Main.invasionProgress}/{Main.invasionProgressMax} wave={Main.invasionProgressWave} mode={Main.invasionProgressMode} nearInvasion={Main.invasionProgressNearInvasion}");
+
+            // Moon events.
+            sb.AppendLine($"MOON pumpkin={Main.pumpkinMoon} frost={Main.snowMoon} wave={NPC.waveNumber} kills={NPC.waveKills}");
+
+            // Lunar pillars: shields only drop as their guards die, and the kill-credit scan is slot-bounded.
+            sb.AppendLine($"PILLARS apocalypse={NPC.LunarApocalypseIsUp} shieldMax={NPC.ShieldStrengthTowerMax}  solar={NPC.ShieldStrengthTowerSolar} vortex={NPC.ShieldStrengthTowerVortex} nebula={NPC.ShieldStrengthTowerNebula} stardust={NPC.ShieldStrengthTowerStardust}");
+
+            sb.AppendLine($"OLD ONE'S ARMY ongoing={Terraria.GameContent.Events.DD2Event.Ongoing} difficulty={Terraria.GameContent.Events.DD2Event.OngoingDifficulty}");
+
+            // Slot split for the NPC groups these events are counted from.
+            int totLow = 0, totHigh = 0, invLow = 0, invHigh = 0, moonLow = 0, moonHigh = 0, pillarLow = 0, pillarHigh = 0;
+            for (int i = 0; i < cap; i++)
+            {
+                NPC n = Main.npc[i];
+                if (n == null || !n.active)
+                    continue;
+
+                bool high = i >= lowZone;
+                if (high) totHigh++; else totLow++;
+
+                if (n.type >= 0 && n.type < NPCID.Sets.BelongsToInvasionOldOnesArmy.Length && NPCID.Sets.BelongsToInvasionOldOnesArmy[n.type])
+                {
+                    if (high) invHigh++; else invLow++;
+                }
+                if (n.value > 0f && (Main.pumpkinMoon || Main.snowMoon) && !n.friendly && n.damage > 0)
+                {
+                    if (high) moonHigh++; else moonLow++;
+                }
+                if (n.type == NPCID.LunarTowerSolar || n.type == NPCID.LunarTowerVortex
+                    || n.type == NPCID.LunarTowerNebula || n.type == NPCID.LunarTowerStardust)
+                {
+                    if (high) pillarHigh++; else pillarLow++;
+                }
+            }
+
+            sb.AppendLine($"SLOT SPLIT (low 0-{lowZone - 1} / high {lowZone}+):  all active {totLow}/{totHigh}   OOA-invasion {invLow}/{invHigh}   moon-enemies {moonLow}/{moonHigh}   pillars {pillarLow}/{pillarHigh}");
+            if (pillarHigh > 0)
+                sb.AppendLine("  !! a Lunar pillar is in a HIGH slot — pillars should be Boss-zoned in 0-199; shield/kill-credit scans may miss it");
+            sb.AppendLine("  (an event counter stuck at 0 while its 'high' column is non-zero == an unpatched engine loop)");
+            return sb.ToString();
         }
 
         public static string BuildImmunityReport(Player p)

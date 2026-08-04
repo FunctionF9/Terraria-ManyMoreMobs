@@ -53,6 +53,27 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 
 
 # Versioning History
+## Version 0.7.5
+- King Slime no longer ambushes you every minute near the world edges, and a Prismatic Lacewing no longer reappears seconds after the Empress dies. Neither is drawn from the normal spawn pool, they roll dice on every spawn attempt (King Slime 1-in-300, Lacewing 1-in-10), so raising the spawn rate multiplied how often they fired. Their odds now widen by the same factor the spawn rate was widened by, keeping them at vanilla frequency at any setting. New 'Normalize Rare Spawns' toggle, ON by default; summoning items are unaffected either way.
+- The Lacewing is a deliberate exception, since hunting one down shouldn't be a chore. 'Lacewing Spawn Boost' keeps it a few times more common than vanilla (5x by default), except for two minutes after the Empress spawns or dies, where it drops to full vanilla rarity so you don't walk straight into re-summoning her.
+- `/debugnpc spawninfo` now reports the rare-spawn odds actually in effect.
+
+## Version 0.7.4
+- "Weapons randomly stop working" fixed. It was never a missed hit, hits were landing fine, but vanilla shaves ~30% damage off a piercing projectile for every enemy it goes through. Over 5 enemies that's a fair tax, across a horde it compounds down to 1 damage. A traced Cool Whip went 33 -> 23 -> 16 -> 11 across four Mimics and landed for 1 on the last.
+- The 'No Pierce Falloff' toggles (added in 0.6) now default ON for Melee / Ranged / Magic, since the whole point of the mod is fighting crowds. Turn them off for literal vanilla behaviour. Extra Pierce and Anti-Tunnel stay off by default.
+- Whips got their own 'Summon No Pierce Falloff' toggle, also ON by default. Whips count as summon damage rather than melee, so the Melee toggle never covered them, and each whip type carries its own steep decay: a traced Cool Whip ran 33 -> 23 -> 16 -> 11 -> 7 -> 4 -> 2 -> 1 -> 0, dealing literal zero from the ninth enemy of a single swing onward.
+- Broadswords no longer stop connecting a couple of enemies into a swing. In 1.4.4 the big swords swing as a projectile with a hard enemy cap baked in, Night's Edge stops after 2, Excalibur and Terra Blade after 3, True Excalibur after 6, and the remainder of the swing deals nothing at all. A traced Night's Edge landed on exactly 4 enemies per swing, at full damage, while standing in a crowd of hundreds. 'Melee Extra Pierce' now defaults to 5, matching Ranged.
+- Debug tooling: the hit tracker now covers swung weapons too (they were previously invisible to it), reports the melee gates split by low vs high slot, and no longer burns its whole log budget on idle bystanders in a packed crowd.
+
+## Version 0.7.3
+- Rare critters (Prismatic Lacewing, Truffle Worm, gold/gem critters) no longer get squeezed out by a full Critter cap. This is why Empress of Light "wouldn't spawn", the Lacewing that summons her is a critter, and at high spawn rates the critter cap sits permanently full of bunnies so she could never appear. Same fix keeps Duke Fishron's Truffle Worm spawnable, and rare critters are now never despawned to make room.
+
+## Version 0.7.2
+- Bug nets can catch critters again. The catch scan only ever looked at slots 0-199, and critters live in the expanded slots, so nets caught literally nothing in Expanded mode.
+- Invasion progress bar shows up again. The "is an invasion happening near me" check was slot-limited too, so with invaders in the expanded slots the bar never appeared and invasions looked endless.
+- Lunatic Cultist ritual and statue spawn limits also patched for the expanded slots.
+- New dev tool: `tools/audit-npc-loops.sh` audits the game's ~220 hardcoded 0-199 NPC loops against the mod's patch list, so remaining gaps are a checklist instead of guesswork. New `/debugnpc event` command reports invasion/moon/pillar state plus the low-vs-high slot split.
+
 ## Version 0.7.1
 - In-game enemy counters patched, no longer restricted to single byte so can count past 255.
 - Lifeform Analyzer patched, default scan only 0-199 slots, storing found NPC's slot in a byte, so rare creatures living past slot 200 were invisible or grabbed from wrong slot due to looping.

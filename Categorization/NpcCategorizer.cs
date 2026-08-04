@@ -91,6 +91,23 @@ namespace ManyMoreMobs
         public static NpcCategory CategorizeType(int type) => NpcTypeCategories.Get(type);
 
         /// <summary>
+        /// A RARE critter — Prismatic Lacewing, Truffle Worm, gold/gem critters (see
+        /// <see cref="NpcTypeCategories.IsSpecial"/>). They stay in the Critter category (they shouldn't eat
+        /// town slots) but are exempt from the critter ceiling and from eviction: they are one-off spawns and
+        /// several of them gate progression — the Lacewing summons the Empress of Light, the Truffle Worm
+        /// summons Duke Fishron. At horde spawn rates CritterCap sits permanently full of bunnies, so without
+        /// this exemption the gate silently refuses them and those bosses become unsummonable.
+        /// <para/>
+        /// Bounded: vanilla already guards these with its own "only one at a time" checks (e.g.
+        /// <c>!AnyNPCs(661)</c> before spawning a Lacewing), so the exemption can only overshoot the cap by a
+        /// couple of slots.
+        /// </summary>
+        public static bool IsSpecialCritter(int type) => NpcTypeCategories.IsSpecial(type);
+
+        /// <inheritdoc cref="IsSpecialCritter(int)"/>
+        public static bool IsSpecialCritter(NPC npc) => npc != null && NpcTypeCategories.IsSpecial(npc.type);
+
+        /// <summary>
         /// Structural Old One's Army objects — the Eternia Crystal and the Lane Portals. These must live in the
         /// low 0-199 zone: vanilla draws them, the "interact to skip wait" right-click finds them, the event's
         /// "is the crystal still alive?" stop-check and its loot/cleanup scans all assume 0-199. The spawn gate

@@ -37,6 +37,10 @@ namespace ManyMoreMobs
                     continue; // never evict town/boss, nor boss-chain segments (chained-worm bodies, e.g. an
                               // Eater of Worlds body, classify as Enemy on their own but must be protected)
 
+                if (NpcCategorizer.IsSpecialCritter(n))
+                    continue; // rare critters (Prismatic Lacewing, Truffle Worm, gold critters) are one-off
+                              // and often gate a boss summon — despawning one can cost a whole boss fight
+
                 int priority = cat == NpcCategory.Critter ? 0 : 1;
                 float distSq = DistanceSqToNearestPlayer(n);
 

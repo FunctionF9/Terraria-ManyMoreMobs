@@ -88,6 +88,24 @@ namespace ManyMoreMobs
         [DefaultValue(0.25f)]
         public float BossActiveSpawnFactor { get; set; } = 0.25f;
 
+        // Keep rare "lottery" spawns at their vanilla frequency instead of letting the spawn-rate multiplier
+        // inflate them. Vanilla gates these on a per-ATTEMPT dice roll (King Slime 1-in-300, Prismatic Lacewing
+        // 1-in-10-with-luck), so multiplying how often spawns are attempted multiplies them too — at 200x, a
+        // Lacewing reappears almost the instant the Empress dies. We widen the odds by the same factor the
+        // spawn rate was widened by, so the expected rate matches vanilla no matter how high the dial goes.
+        // Only affects the natural roll; summoning items are untouched. Live (no reload).
+        [DefaultValue(true)]
+        public bool NormalizeRareSpawns { get; set; } = true;
+
+        // Exception to the above, for the Prismatic Lacewing only. Finding one is a deliberate hunt rather than
+        // an ambush, so full vanilla rarity makes it a chore at high spawn rates — this keeps it this many times
+        // more common than vanilla. It still drops to full vanilla rarity for two minutes after the Empress
+        // spawns or dies, so you don't immediately re-summon her. No effect if Normalize Rare Spawns is OFF.
+        [Range(1f, 50f)]
+        [Increment(1f)]
+        [DefaultValue(5f)]
+        public float LacewingSpawnBoost { get; set; } = 5f;
+
         // ── 4. Debugging ───────────────────────────────────────────────────────────────────────────
         // Auto-dumps state to ManyMoreMobs-state.log on world load and before each save. /debugnpc commands
         // always log regardless. Leave off for normal play.

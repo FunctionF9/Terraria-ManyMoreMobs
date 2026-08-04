@@ -41,7 +41,7 @@ Expect rough edges, please play on a [b]fresh world, with a fresh character[/b],
 [*]    Old One's Army spawn-rate and wave-length controls.
 
 [*][b]Horde combat assists[/b]
-[*]    Opt-in, per damage class (Melee / Ranged / Magic): extra pierce, anti-tunnel (fast projectiles hit every enemy along their path), and no pierce-falloff (piercing shots keep full damage across a crowd), plus "melee hits all in swing".
+[*]    Per damage class (Melee / Ranged / Magic / Summon): no pierce-falloff (piercing shots and whips keep full damage across a crowd instead of decaying to nothing), extra pierce, anti-tunnel (fast projectiles hit every enemy along their path), and "melee hits all in swing". The ones that fix behaviour vanilla balanced around a handful of enemies are ON by default, the rest are opt-in.
 [/list]
 
 

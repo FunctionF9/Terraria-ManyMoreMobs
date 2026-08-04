@@ -1,5 +1,6 @@
 using Terraria;
 using Terraria.DataStructures;
+using Terraria.ID;
 using Terraria.ModLoader;
 
 namespace ManyMoreMobs
@@ -47,7 +48,13 @@ namespace ManyMoreMobs
             if (config == null)
                 return false;
 
+            // Whips FIRST: they are DamageClass.SummonMeleeSpeed, which no Melee/Ranged/Magic branch matches,
+            // so before this they fell through to `false` and kept decaying to 0 damage mid-swing.
+            if (ProjectileID.Sets.IsAWhip[projectile.type])
+                return config.SummonNoPierceFalloff;
+
             DamageClass dc = projectile.DamageType;
+            if (dc.CountsAsClass(DamageClass.Summon)) return config.SummonNoPierceFalloff;
             if (dc.CountsAsClass(DamageClass.Melee)) return config.MeleeNoPierceFalloff;
             if (dc.CountsAsClass(DamageClass.Ranged)) return config.RangedNoPierceFalloff;
             if (dc.CountsAsClass(DamageClass.Magic)) return config.MagicNoPierceFalloff;

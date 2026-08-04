@@ -98,8 +98,9 @@ namespace ManyMoreMobs
                 bool guaranteed = isTown || isBoss;
 
                 // Ceiling enforcement (a hard block). Boss-parented segments are never blocked (a worm must
-                // spawn whole). See IsBlockedByCeiling for the per-category, mode-aware rules.
-                if (authority && !bossParented)
+                // spawn whole), and neither are rare critters — a permanently-full CritterCap would otherwise
+                // make the Empress of Light and Duke Fishron unsummonable. See IsBlockedByCeiling.
+                if (authority && !bossParented && !NpcCategorizer.IsSpecialCritter(type))
                 {
                     var config = ModContent.GetInstance<ManyMoreMobsConfig>();
                     if (config != null && IsBlockedByCeiling(config, cat, isBoss))

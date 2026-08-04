@@ -185,6 +185,28 @@ namespace ManyMoreMobs
             // Verified: the method's only `200` literal is this loop bound.
             PatchNpcLoops(mod, typeof(Main), "HoverOverNPCs");
 
+            // ── Playtester-reported gaps (0.7.2). Found by tools/audit-npc-loops.sh, which diffs the engine's
+            // full inventory of hardcoded NPC loops against this registry — re-run it after a tModLoader update.
+            // All four are small, single-purpose methods, and PatchNpcLoops only widens a `< 200` loop whose body
+            // touches an NPC member, so unrelated 200s (type ids, distances) are never rewritten.
+
+            // Bug net / critter catching. ItemCheck_CatchCritters scans 0-199 for `catchItem > 0`, but critters
+            // are zoned into the expanded slots — so nets caught literally nothing in Expanded mode.
+            PatchNpcLoops(mod, typeof(Player), "ItemCheck_CatchCritters");
+
+            // Invasion progress bar. CheckInvasionProgressDisplay scans 0-199 to decide whether an invasion
+            // enemy is near enough to SHOW the progress bar; with the invaders in high slots it concluded "no
+            // invasion nearby" and the bar never appeared (reported as invasions being "un-ending").
+            PatchNpcLoops(mod, typeof(Main), "CheckInvasionProgressDisplay");
+
+            // Lunatic Cultist ritual: nine 0-199 scans (counting the ritual cultists, finding the real body,
+            // clearing adds). Cultists spawning into high slots could break the ritual / pillar summon.
+            PatchNpcLoops(mod, typeof(NPC), "AI_084_LunaticCultist");
+
+            // Statue / mechanism spawn limits: MechSpawn counts nearby same-type NPCs to cap statue output.
+            // Blind to high slots it undercounts, letting statues flood the world past their vanilla limit.
+            PatchNpcLoops(mod, typeof(NPC), "MechSpawn");
+
             // Whip / minion target marker: the reticle drawn over the minion-attack-target (and whip-tagged)
             // NPC is in DrawInterface_1_2_DrawEntityMarkersInWorld, which scans only 0-199 — so no marker
             // appears over enemies in slots 200+. Single NPC loop in the method, so blanket-safe.
@@ -235,6 +257,82 @@ namespace ManyMoreMobs
             Apply(mod, "NPC.SpawnNPC (spawn-item modifiers)",
                 typeof(NPC).GetMethod("SpawnNPC", BindingFlags.Public | BindingFlags.Static),
                 Patch_SpawnItemModifiers);
+
+            // ── Rare "lottery" spawns: widen their per-attempt odds so cranking the spawn rate doesn't
+            // multiply how often they fire (see RareSpawnNormalizer). ──
+            Apply(mod, "NPC.SpawnNPC (rare-spawn rolls)",
+                typeof(NPC).GetMethod("SpawnNPC", BindingFlags.Public | BindingFlags.Static),
+                Patch_RareSpawnRolls);
+        }
+
+        /// <summary>
+        /// Scale the two per-spawn-attempt rare rolls in <c>NPC.SpawnNPC</c> by the spawn-rate amplification,
+        /// so they keep vanilla's expected frequency however high the spawn dial goes.
+        /// <list type="bullet">
+        /// <item><b>King Slime</b> — <c>Main.rand.Next(300) == 0 &amp;&amp; !AnyNPCs(50)</c></item>
+        /// <item><b>Prismatic Lacewing</b> — <c>RollLuck(10) == 0 &amp;&amp; !AnyNPCs(661)</c></item>
+        /// </list>
+        /// Both are anchored on their unique <c>AnyNPCs(&lt;type&gt;)</c> guard and then walked BACKWARD to the
+        /// odds literal, because the bare literals (300, 10) are far from unique in a method this size. We
+        /// insert a call after the literal rather than replacing it, so the odds stay a plain
+        /// <c>int -&gt; int</c> transform and the surrounding IL is untouched.
+        /// <para/>
+        /// Scoped deliberately to these two. <c>SpawnNPC</c> contains a whole family of the same pattern —
+        /// bound Goblin/Wizard (<c>RollLuck(20)</c>), bound slimes (25/30), Nymph (30), and the many
+        /// <c>goldCritterChance</c> rolls. The rescue NPCs are deliberately LEFT inflated (players want to
+        /// find them, and 0.7.1 went to some trouble to make them spawnable at all), and the gold-critter
+        /// rolls use a variable rather than a literal so they have no stable anchor. Each is patched in its
+        /// own try/catch: one missing anchor is logged and skipped, never fatal.
+        /// </summary>
+        private static void Patch_RareSpawnRolls(ILContext il)
+        {
+            MethodInfo anyNpcs = typeof(NPC).GetMethod(nameof(NPC.AnyNPCs), BindingFlags.Public | BindingFlags.Static);
+            MethodInfo scaleOdds = typeof(RareSpawnNormalizer).GetMethod(nameof(RareSpawnNormalizer.ScaleOdds),
+                BindingFlags.Public | BindingFlags.Static);
+            MethodInfo scaleLacewing = typeof(RareSpawnNormalizer).GetMethod(nameof(RareSpawnNormalizer.ScaleLacewingOdds),
+                BindingFlags.Public | BindingFlags.Static);
+
+            if (anyNpcs == null || scaleOdds == null || scaleLacewing == null)
+                throw new Exception("rare-spawn anchors/target not resolvable");
+
+            // Insert `-> <scaler>(...)` immediately after the odds literal the cursor is sitting before,
+            // turning `Next(300)` into `Next(ScaleOdds(300))`.
+            void ScaleAfterLiteral(ILCursor c, MethodInfo scaler)
+            {
+                c.Index++;
+                c.Emit(OpCodes.Call, il.Import(scaler));
+            }
+
+            void Roll(string name, Action act)
+            {
+                try { act(); }
+                catch (Exception e) { ModRef?.Logger.Warn($"[MMM] rare-spawn roll '{name}' not patched (skipped): {e.Message}"); }
+            }
+
+            Roll("King Slime", () =>
+            {
+                var c = new ILCursor(il);
+                // `... && Main.rand.Next(300) == 0 && !AnyNPCs(50)` — anchor on the AnyNPCs(50) guard.
+                if (!c.TryGotoNext(i => i.MatchLdcI4(50), i => i.MatchCall(anyNpcs)))
+                    throw new Exception("AnyNPCs(50) anchor");
+                if (!c.TryGotoPrev(i => i.MatchLdcI4(300)))
+                    throw new Exception("rand.Next(300) literal");
+                ScaleAfterLiteral(c, scaleOdds);
+            });
+
+            Roll("Prismatic Lacewing", () =>
+            {
+                var c = new ILCursor(il);
+                // `... && Main.player[k].RollLuck(10) == 0 && !AnyNPCs(661)` — anchor on the AnyNPCs(661) guard,
+                // which is the only one in the game, then step back onto RollLuck's own argument.
+                if (!c.TryGotoNext(i => i.MatchLdcI4(661), i => i.MatchCall(anyNpcs)))
+                    throw new Exception("AnyNPCs(661) anchor");
+                if (!c.TryGotoPrev(i => i.MatchLdcI4(10),
+                                   i => i.Operand is MethodReference mr && mr.Name == nameof(Player.RollLuck)))
+                    throw new Exception("RollLuck(10) literal");
+                // Lacewing keeps a boosted rate outside the post-Empress cooldown — see ScaleLacewingOdds.
+                ScaleAfterLiteral(c, scaleLacewing);
+            });
         }
 
         // NPC.SpawnNPC applies a list of player-driven spawn modifiers as hardcoded constants. We replace each

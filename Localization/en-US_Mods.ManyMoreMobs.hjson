@@ -47,6 +47,26 @@ Configs: {
 				'''
 		}
 
+		NormalizeRareSpawns: {
+			Label: Normalize Rare Spawns
+			Tooltip:
+				'''
+				Keeps rare lottery spawns at their vanilla frequency instead of letting the spawn rate multiply them.
+				King Slime and the Prismatic Lacewing aren't drawn from the normal spawn pool, they roll dice on every spawn attempt, so cranking the spawn rate makes them appear far more often. At 200x King Slime keeps ambushing you near the world edges and a Lacewing is back within seconds of the Empress dying.
+				Only touches natural spawns, summoning items are unaffected. Defaults ON. Off = they scale with your spawn rate.
+				'''
+		}
+
+		LacewingSpawnBoost: {
+			Label: Lacewing Spawn Boost
+			Tooltip:
+				'''
+				Exception to the above, for the Prismatic Lacewing only. Finding one is a hunt rather than an ambush, so full vanilla rarity makes it a chore when everything else is spawning fast. This keeps it this many times more common than vanilla.
+				It still drops back to full vanilla rarity for two minutes after the Empress of Light spawns or dies, so you don't walk straight into re-summoning her.
+				No effect if Normalize Rare Spawns is OFF.
+				'''
+		}
+
 		CapMode: {
 			Label: Mode
 			Tooltip:
@@ -402,6 +422,7 @@ Configs: {
 			Melee: Melee
 			Ranged: Ranged
 			Magic: Magic
+			Summon: Summon
 		}
 
 		MeleeHitsAllInSwing: {
@@ -418,6 +439,7 @@ Configs: {
 			Tooltip:
 				'''
 				Extra enemies a melee projectile (sword beams, swung-weapon projectiles) can pierce through.
+				Defaults to 5. The big swords swing as a projectile with a hard enemy cap baked in, Night's Edge stops at 2 per swing, Excalibur and Terra Blade at 3, True Excalibur at 6, and the rest of the swing deals nothing. Fine in vanilla, but in a crowd it reads as the sword whiffing.
 				0 = vanilla.
 				'''
 		}
@@ -436,6 +458,7 @@ Configs: {
 			Tooltip:
 				'''
 				Piercing melee projectiles keep their per-hit damage right across a crowd, instead of it shrinking with every enemy pierced.
+				Defaults ON. Vanilla drops roughly 30% per enemy pierced, fine over 5 enemies, but across a horde it decays to 1 damage and the weapon feels broken.
 				Off = vanilla.
 				'''
 		}
@@ -464,7 +487,7 @@ Configs: {
 				'''
 				Piercing arrows/bullets keep their per-hit damage across a crowd, instead of it shrinking with every enemy pierced.
 				Fixes "infinite pierce" arrows (e.g. Jester's Arrow) reaching the far end of a horde for ~0 damage.
-				Off = vanilla.
+				Defaults ON. Off = vanilla.
 				'''
 		}
 
@@ -491,7 +514,17 @@ Configs: {
 			Tooltip:
 				'''
 				Piercing magic projectiles keep their per-hit damage across a crowd, instead of it shrinking with every enemy pierced.
-				Off = vanilla.
+				Defaults ON. Off = vanilla.
+				'''
+		}
+
+		SummonNoPierceFalloff: {
+			Label: Summon No Pierce Falloff
+			Tooltip:
+				'''
+				Whips keep their per-hit damage all the way along a swing, instead of it shrinking with every enemy struck.
+				Whips count as summon damage, not melee, so the Melee toggle above does not cover them, they need this one.
+				Defaults ON. Vanilla decay is steep enough that a Cool Whip hits 0 damage by the ninth enemy in one swing. Off = vanilla.
 				'''
 		}
 	}

@@ -12,7 +12,7 @@ namespace ManyMoreMobs
     {
         public override string Command => "debugnpc";
         public override string Usage =>
-            "/debugnpc <counts|dump|validate|spawninfo|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss] [amount]|boss [name]|kill|killall>";
+            "/debugnpc <counts|dump|validate|spawninfo|event|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
         public override string Description => "Many More Mobs debug: inspect counts/state/spawn rate, validate arrays, test spawning. Full reports go to ManyMoreMobs-state.log.";
 
         public override CommandType Type => CommandType.Chat;
@@ -45,6 +45,15 @@ namespace ManyMoreMobs
                 {
                     string report = EngineDiagnostics.BuildSpawnInfoReport(caller.Player);
                     MmmLog.Dump("/debugnpc spawninfo", report);
+                    foreach (string line in report.TrimEnd().Split('\n'))
+                        Main.NewText(line.TrimEnd());
+                    break;
+                }
+
+                case "event":
+                {
+                    string report = EngineDiagnostics.BuildEventReport();
+                    MmmLog.Dump("/debugnpc event", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
                         Main.NewText(line.TrimEnd());
                     break;
@@ -192,8 +201,19 @@ namespace ManyMoreMobs
                 case "critter": type = NPCID.Bunny; break;
                 case "boss": type = NPCID.KingSlime; break;
                 case "town": type = NPCID.Guide; break;
+                // A RARE critter (Prismatic Lacewing). Rare critters are exempt from the critter ceiling
+                // because they gate boss summons — saturate the cap with `spawn critter 30`, then this must
+                // still succeed. Testing that rule otherwise means waiting on Plantera + a natural spawn.
+                case "rare": type = NPCID.EmpressButterfly; break;
+                case "truffle": type = NPCID.TruffleWorm; break;
                 default:
-                    Main.NewText("Unknown category. Use: town | enemy | critter | boss");
+                    // Raw type id, so any NPC can be put through the gate without a new alias each time.
+                    if (int.TryParse(category, out int rawType) && rawType > 0 && rawType < NPCLoader.NPCCount)
+                    {
+                        type = rawType;
+                        break;
+                    }
+                    Main.NewText("Unknown category. Use: town | enemy | critter | boss | rare | truffle | <type id>");
                     return;
             }
 

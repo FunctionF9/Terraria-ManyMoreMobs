@@ -5,9 +5,6 @@ obj/
 # ---- Compiled mod (tModLoader builds the .tmod into its Mods folder, not the repo) ----
 *.tmod
 
-# ---- Claude Code local settings (machine-specific paths / permissions; not for publishing) ----
-.claude/
-
 # ---- IDE / editor local files ----
 .vs/
 .vscode/
@@ -21,3 +18,4 @@ obj/
 .DS_Store
 Thumbs.db
 desktop.ini
+*.stackdump
