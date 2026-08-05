@@ -47,7 +47,10 @@ OUT="${1:-$REPO_DIR/tools/audit-report.md}"
 WORK="${TMPDIR:-/tmp}/mmm-audit"
 
 # The four types that hold essentially every NPC-indexed loop in the game.
-TYPES="Player Projectile Main NPC"
+# Item joined the list in 0.7.6.2: a player reported the Copper Town Slime being unobtainable, and the cause
+# was a plain 0-199 NPC loop in Item.GetPickedUpByMonsters_Special that this audit had never looked at.
+# If a report points at a system none of these types own, widen this list before assuming the code is fine.
+TYPES="Player Projectile Main NPC Item"
 
 command -v ilspycmd >/dev/null 2>&1 || {
     echo "error: ilspycmd not found on PATH (dotnet tool install --global ilspycmd --version 8.0.0.7345)" >&2

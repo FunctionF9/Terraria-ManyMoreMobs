@@ -53,6 +53,12 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 
 
 # Versioning History
+## Version 0.7.6.2 - hotfix
+- The Copper Town Slime can be obtained again. Throwing a Copper Shortsword at a slime made the dropped sword look for a slime to convert, but it only ever checked the first 200 slots, and slimes live in the expanded ones. It found nothing, so the pet was simply unobtainable. Not a multiplayer bug, this one was broken in single-player too.
+- Enemies can pick up dropped coins again, which had the same cause.
+- Checked the rest of the town pet and town slime unlocks while in there: the Elder Slime (right-click to free) and the bound slimes already work, and the licensed pets (cat, dog, bunny) were never affected since they arrive as town NPCs.
+- Dev tooling: the loop audit now scans `Terraria.Item` as well. It previously only looked at Player, Projectile, Main and NPC, which is exactly why the Copper Slime loop sat unnoticed until someone reported it.
+
 ## Version 0.7.6.1 - experimental MP hotfix
 Still **not supported**, still experimental, still untested by me in a real (non-local) session.
 

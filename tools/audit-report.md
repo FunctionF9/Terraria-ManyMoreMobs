@@ -7,7 +7,7 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 - **PATCHED** — a patch targets this method. (Presence, not proof: verify the patch still matches.)
 - **SKIP** — deliberately excluded via an `AUDIT-SKIP` comment in the patcher.
 
-**221 NPC loops found · 116 in un-patched methods.**
+**225 NPC loops found · 116 in un-patched methods.**
 
 ## Terraria.Player
 
@@ -249,4 +249,13 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 | **GAP** | `VanillaHitEffect` | 98474 | `for (int j = 0; j < 200; j++)` |
 | **GAP** | `checkDead` | 84187 | `for (int n = 0; n < 200; n++)` |
 | **GAP** | `setNPCName` | 2440 | `for (int i = 0; i < 200; i++)` |
+
+## Terraria.Item
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
+| SKIP | `CheckLavaDeath` | 50413 | `for (int j = 0; j < 200; j++)` |
+| SKIP | `CheckLavaDeath` | 50435 | `for (int k = 0; k < 200; k++)` |
+| PATCHED | `GetPickedUpByMonsters_Money` | 50898 | `for (int j = 0; j < 200; j++)` |
+| PATCHED | `GetPickedUpByMonsters_Special` | 50873 | `for (int j = 0; j < 200; j++)` |
 

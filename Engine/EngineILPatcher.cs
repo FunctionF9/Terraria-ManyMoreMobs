@@ -207,6 +207,23 @@ namespace ManyMoreMobs
             // Blind to high slots it undercounts, letting statues flood the world past their vanilla limit.
             PatchNpcLoops(mod, typeof(NPC), "MechSpawn");
 
+            // ── Dropped-item / NPC interactions (0.7.6.2). Terraria.Item was never covered by the loop audit
+            // (it only decompiled Player/Projectile/Main/NPC), so these went unnoticed until a player reported
+            // the Copper Slime not working. ──
+
+            // Throwing a Copper Shortsword at a slime turns it into the Copper Town Slime. The dropped item
+            // scans for a convertible slime in a hardcoded 0-199 loop, and slimes live in the expanded zone,
+            // so it found nothing and the pet was unobtainable. Single loop in the method — safe to widen.
+            PatchNpcLoops(mod, typeof(Item), "GetPickedUpByMonsters_Special");
+
+            // Enemies stealing dropped coins ("lunch money") — same shape, so no enemy above slot 199 could
+            // ever pick up a coin.
+            PatchNpcLoops(mod, typeof(Item), "GetPickedUpByMonsters_Money");
+
+            // AUDIT-SKIP: Item.CheckLavaDeath — its 0-199 scan looks only for the Guide (type 22) to kill when
+            // a Guide Voodoo Doll hits lava. Town NPCs are always zoned into the low slots, so the loop already
+            // finds him; widening it would be a no-op.
+
             // Whip / minion target marker: the reticle drawn over the minion-attack-target (and whip-tagged)
             // NPC is in DrawInterface_1_2_DrawEntityMarkersInWorld, which scans only 0-199 — so no marker
             // appears over enemies in slots 200+. Single NPC loop in the method, so blanket-safe.
