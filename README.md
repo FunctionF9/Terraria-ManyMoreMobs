@@ -53,6 +53,10 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 
 
 # Versioning History
+## Version 0.7.6.3 - hotfix
+- Town NPCs that *become* town NPCs are now moved into the low slots instead of staying where they were. Transforming an NPC changes it where it stands, it never picks a new slot, so the Copper Town Slime from 0.7.6.2 was born in an expanded slot and stayed there. A town NPC up there is invisible to the housing overlay and to the game's own count of how many townsfolk you have, and the only way to fix it was reloading the world. Now it sorts itself out within half a second.
+- Same repair covers any town NPC that landed high because the low slots happened to be full at the time, and any modded NPC that transforms into one.
+
 ## Version 0.7.6.2 - hotfix
 - The Copper Town Slime can be obtained again. Throwing a Copper Shortsword at a slime made the dropped sword look for a slime to convert, but it only ever checked the first 200 slots, and slimes live in the expanded ones. It found nothing, so the pet was simply unobtainable. Not a multiplayer bug, this one was broken in single-player too.
 - Enemies can pick up dropped coins again, which had the same cause.

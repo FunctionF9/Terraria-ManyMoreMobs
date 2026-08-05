@@ -154,6 +154,23 @@ namespace ManyMoreMobs
             (uint)slot < (uint)_bossChain.Length && _bossChain[slot];
 
         /// <summary>
+        /// Carries a slot's boss-chain tag across a relocation (see <see cref="SlotRezoner"/>) and clears the
+        /// vacated slot. The rezoner never moves a chain member, so the tag being carried is currently always
+        /// false — but the destination may still hold a stale tag from a previous occupant, and clearing that
+        /// is what actually matters here.
+        /// </summary>
+        internal static void MoveBossChainTag(int from, int to)
+        {
+            EnsureBossChainSize();
+
+            bool tag = (uint)from < (uint)_bossChain.Length && _bossChain[from];
+            if ((uint)to < (uint)_bossChain.Length)
+                _bossChain[to] = tag;
+            if ((uint)from < (uint)_bossChain.Length)
+                _bossChain[from] = false;
+        }
+
+        /// <summary>
         /// A spawn that must always succeed (Town / Boss / boss segment).
         /// <para/>
         /// <b>Expanded</b> — the reservation already guarantees zoned space, so honour the caller's preferred
