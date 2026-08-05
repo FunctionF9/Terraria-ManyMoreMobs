@@ -53,6 +53,13 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 
 
 # Versioning History
+## Version 0.7.6.1 - experimental MP hotfix
+Still **not supported**, still experimental, still untested by me in a real (non-local) session.
+
+- The Old One's Army Dark Mage now appears in multiplayer. It was spawning all along, but the server only announces a newly spawned NPC to clients when it lands in the first 200 slots, and expanded-slot spawns were announced to nobody. The Dark Mage existed on the server and was invisible to every player, so the wave could never be cleared.
+- Same silence fixed for adds summoned by enemy AI, on-hit spawns, enemies that split when killed, Queen Slime's minions and Faelings. Twenty places in total, all the same shape, all server-only, so single-player is untouched.
+- Old One's Army minibosses (Dark Mage, Ogre, Betsy) now count as Bosses. Vanilla gives them no boss flag at all, a Dark Mage is just an enemy with 500 health, so they were treated as ordinary trash: capped alongside regular enemies and despawnable to make room. If the enemy cap happened to be full when the wave triggered, the miniboss simply never spawned and the wave couldn't be finished. They now get the same guaranteed slot as any other boss. This one applies in single-player too.
+
 ## Version 0.7.6 - experimental multiplayer testing
 Multiplayer is still **not supported**. These are best-effort fixes for symptoms reported by players who turned out to be playing in multiplayer, and they are untested by me. Treat any multiplayer session as a test run, and please report what breaks.
 

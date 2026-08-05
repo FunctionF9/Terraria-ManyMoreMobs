@@ -45,6 +45,121 @@ namespace ManyMoreMobs.MMMultiplayer
             {
                 Mod.Logger.Error($"[MMM/MP] MessageBuffer.GetData patch FAILED (skipped; game stays stable): {e.Message}");
             }
+
+            ApplyServerBroadcastGuards();
+        }
+
+        /// <summary>
+        /// Widen the <c>if (Main.netMode == 2 &amp;&amp; slot &lt; 200) NetMessage.SendData(23, ...)</c> pattern —
+        /// "the server just spawned an NPC; tell the clients about it, but only if it landed below slot 200".
+        /// <para/>
+        /// This is a whole family, twenty sites across nine methods, and it is arguably worse than the packet
+        /// guards: the NPC exists and behaves on the server while <b>no client is ever told it exists</b>. It
+        /// is why the Old One's Army Dark Mage "doesn't spawn" in multiplayer — it spawns fine, into an
+        /// expanded slot, and the broadcast is skipped. The same silence hits enemies that split on death
+        /// (<c>checkDead</c>), adds summoned by enemy AI (<c>VanillaAI_Inner</c>) and on-hit spawns
+        /// (<c>VanillaHitEffect</c>).
+        /// <para/>
+        /// Purely a multiplayer defect — the guarded branch only runs on a dedicated server, which is why none
+        /// of it reproduces in single-player.
+        /// </summary>
+        private void ApplyServerBroadcastGuards()
+        {
+            Type dd2 = typeof(Main).Assembly.GetType("Terraria.GameContent.Events.DD2Event");
+
+            var targets = new (Type type, string name, BindingFlags flags)[]
+            {
+                // Old One's Army gate spawns — every wave enemy AND the Dark Mage / Ogre minibosses.
+                (dd2, "Difficulty_1_SpawnMonsterFromGate", BindingFlags.NonPublic | BindingFlags.Static),
+                (dd2, "Difficulty_2_SpawnMonsterFromGate", BindingFlags.NonPublic | BindingFlags.Static),
+                (dd2, "Difficulty_3_SpawnMonsterFromGate", BindingFlags.NonPublic | BindingFlags.Static),
+                // Enemies that split or spawn children on death (Eater of Worlds, slimes, ...).
+                (typeof(NPC), "checkDead", BindingFlags.Public | BindingFlags.Instance),
+                // Adds summoned by enemy AI, and on-hit spawns.
+                (typeof(NPC), "VanillaAI_Inner", BindingFlags.NonPublic | BindingFlags.Instance),
+                (typeof(NPC), "VanillaHitEffect", BindingFlags.NonPublic | BindingFlags.Instance),
+                (typeof(NPC), "AI_121_QueenSlime", BindingFlags.NonPublic | BindingFlags.Instance),
+                (typeof(NPC), "SpawnFaelings", BindingFlags.Public | BindingFlags.Static),
+                (typeof(NPC), "SpawnBoss", BindingFlags.Public | BindingFlags.Static),
+            };
+
+            foreach (var (type, name, flags) in targets)
+            {
+                MethodInfo m = type?.GetMethod(name, flags);
+                if (m == null)
+                {
+                    Mod.Logger.Warn($"[MMM/MP] broadcast-guard target not found: {name} (skipped).");
+                    continue;
+                }
+
+                try
+                {
+                    MonoModHooks.Modify(m, Patch_ServerBroadcastGuards);
+                    Mod.Logger.Info($"[MMM/MP] IL patched: {name} (server broadcast guards).");
+                }
+                catch (Exception e)
+                {
+                    Mod.Logger.Warn($"[MMM/MP] broadcast guards in {name} not patched (skipped): {e.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Structural matcher for the broadcast guard. These methods are far too large to blanket-replace
+        /// every <c>200</c> in, so a literal only qualifies when it is genuinely part of this pattern: a
+        /// <c>Main.netMode</c> read just before it, and a <c>NetMessage.SendData</c> call just after. A stray
+        /// 200 used as a distance, a tile bound or a damage figure matches neither and is left alone.
+        /// </summary>
+        private static void Patch_ServerBroadcastGuards(ILContext il)
+        {
+            MethodInfo limit = typeof(MpNetGuards).GetMethod(nameof(MpNetGuards.IndexLimit),
+                BindingFlags.Public | BindingFlags.Static)
+                ?? throw new Exception("MpNetGuards.IndexLimit not resolvable");
+
+            var instrs = il.Instrs;
+            int patched = 0;
+
+            for (int i = 0; i < instrs.Count; i++)
+            {
+                if (!instrs[i].MatchLdcI4(200))
+                    continue;
+
+                bool afterNetModeRead = false;
+                for (int b = Math.Max(0, i - 5); b < i; b++)
+                {
+                    if (instrs[b].OpCode == OpCodes.Ldsfld
+                        && instrs[b].Operand is Mono.Cecil.FieldReference fr
+                        && fr.Name == nameof(Main.netMode))
+                    {
+                        afterNetModeRead = true;
+                        break;
+                    }
+                }
+                if (!afterNetModeRead)
+                    continue;
+
+                bool beforeSendData = false;
+                for (int f = i + 1; f < Math.Min(instrs.Count, i + 16); f++)
+                {
+                    if (instrs[f].Operand is Mono.Cecil.MethodReference mr && mr.Name == "SendData")
+                    {
+                        beforeSendData = true;
+                        break;
+                    }
+                }
+                if (!beforeSendData)
+                    continue;
+
+                instrs[i].OpCode = OpCodes.Call;
+                instrs[i].Operand = il.Import(limit);
+                patched++;
+            }
+
+            if (patched == 0)
+                throw new Exception("no server-broadcast guard matched the netMode/SendData shape");
+
+            ModContent.GetInstance<ManyMoreMobs>()?.Logger.Info(
+                $"[MMM/MP] widened {patched} server broadcast guard(s) in {il.Method.Name}.");
         }
 
         private static void Patch_GetData(ILContext il)

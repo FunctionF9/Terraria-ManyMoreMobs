@@ -78,7 +78,8 @@ namespace ManyMoreMobs
             if (npc.isLikeATownNPC)
                 return NpcCategory.Town;
 
-            if (npc.boss || ((uint)npc.type < (uint)NPCID.Sets.ShouldBeCountedAsBoss.Length && NPCID.Sets.ShouldBeCountedAsBoss[npc.type]))
+            if (npc.boss || IsEventMiniboss(npc.type)
+                || ((uint)npc.type < (uint)NPCID.Sets.ShouldBeCountedAsBoss.Length && NPCID.Sets.ShouldBeCountedAsBoss[npc.type]))
                 return NpcCategory.Boss;
 
             if (npc.CountsAsACritter)
@@ -106,6 +107,33 @@ namespace ManyMoreMobs
 
         /// <inheritdoc cref="IsSpecialCritter(int)"/>
         public static bool IsSpecialCritter(NPC npc) => npc != null && NpcTypeCategories.IsSpecial(npc.type);
+
+        /// <summary>
+        /// Old One's Army wave minibosses. Vanilla gives them <b>no</b> boss flag at all — a Dark Mage is just
+        /// an enemy with 500 HP, an Ogre one with 13,000 — so by flags alone they land in the Enemy category
+        /// and are treated as ordinary trash: subject to the Enemy ceiling, and evictable to make room.
+        /// <para/>
+        /// That is wrong for a wave-ending miniboss. If the Enemy cap happens to be saturated when the wave
+        /// triggers, the spawn gate refuses it outright and the wave can never be completed. Categorising them
+        /// as Boss gives them the same guaranteed-slot-via-eviction and never-evicted treatment as Plantera or
+        /// the Empress, which is plainly what they deserve — and it costs only a handful of the boss budget,
+        /// and only while an Old One's Army is actually running.
+        /// <para/>
+        /// It also helps multiplayer as a side effect: the boss zone is the low 0-199 range, and several of
+        /// vanilla's server-side "announce this spawn to clients" checks refuse to broadcast a slot ≥ 200 (see
+        /// <c>MMMultiplayer</c>). It is NOT the multiplayer fix though — the ordinary wave enemies are Enemy
+        /// by design and stay high, so the netcode patch is still what makes the event visible.
+        /// <para/>
+        /// Betsy is listed for completeness; she may already qualify via <c>ShouldBeCountedAsBoss</c>, in which
+        /// case naming her here is a harmless no-op rather than a behaviour change.
+        /// </summary>
+        public static bool IsEventMiniboss(int type) => type switch
+        {
+            NPCID.DD2DarkMageT1 or NPCID.DD2DarkMageT3 => true,
+            NPCID.DD2OgreT2 or NPCID.DD2OgreT3 => true,
+            NPCID.DD2Betsy => true,
+            _ => false,
+        };
 
         /// <summary>
         /// Structural Old One's Army objects — the Eternia Crystal and the Lane Portals. These must live in the
