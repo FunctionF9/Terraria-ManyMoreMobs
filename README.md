@@ -53,6 +53,16 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 
 
 # Versioning History
+## Version 0.7.6 - experimental multiplayer testing
+Multiplayer is still **not supported**. These are best-effort fixes for symptoms reported by players who turned out to be playing in multiplayer, and they are untested by me. Treat any multiplayer session as a test run, and please report what breaks.
+
+- Critters can be caught in multiplayer. A client can't catch anything itself, it hides the critter locally and asks the server to do the real catch, and the server was throwing that request away for anything above slot 200. The critter then reappeared on the next sync, which is exactly the reported "goes into the net and right back out of it".
+- Enemy invulnerability frames now sync for expanded-slot enemies. The packet carrying them was being applied to a throwaway NPC and lost, so clients never learned the real window. This is a plausible cause of the "enemy takes no damage" reports that only ever showed up in multiplayer.
+- Debuffs can be cleared from expanded-slot enemies, coin value pings arrive, and a player joining now gets sent the whole NPC list rather than just the first 200.
+- Neutralised an anti-cheat check that could kick a player from the server for referencing a high NPC slot.
+- All of it lives in its own `MMMultiplayer/` folder and is gated behind 'Experimental Multiplayer Fixes' (Debugging & Experimental, ON by default, applies live). Switch it off for untouched vanilla netcode. Nothing in single-player is affected either way.
+- `/debugnpc` now answers the player who typed it rather than the server console, so it's actually usable when reporting a multiplayer problem. `/debugnpc track` says outright that it's single-player only instead of quietly logging nothing.
+
 ## Version 0.7.5
 - King Slime no longer ambushes you every minute near the world edges, and a Prismatic Lacewing no longer reappears seconds after the Empress dies. Neither is drawn from the normal spawn pool, they roll dice on every spawn attempt (King Slime 1-in-300, Lacewing 1-in-10), so raising the spawn rate multiplied how often they fired. Their odds now widen by the same factor the spawn rate was widened by, keeping them at vanilla frequency at any setting. New 'Normalize Rare Spawns' toggle, ON by default; summoning items are unaffected either way.
 - The Lacewing is a deliberate exception, since hunting one down shouldn't be a chore. 'Lacewing Spawn Boost' keeps it a few times more common than vanilla (5x by default), except for two minutes after the Empress spawns or dies, where it drops to full vanilla rarity so you don't walk straight into re-summoning her.

@@ -13,7 +13,7 @@ namespace ManyMoreMobs
         public override string Command => "debugnpc";
         public override string Usage =>
             "/debugnpc <counts|dump|validate|spawninfo|event|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
-        public override string Description => "Many More Mobs debug: inspect counts/state/spawn rate, validate arrays, test spawning. Full reports go to ManyMoreMobs-state.log.";
+        public override string Description => "Many More Mobs debug: inspect counts/state/spawn rate, validate arrays, test spawning. Full reports go to ManyMoreMobs-state.log (on the SERVER's machine in multiplayer; the summary still comes back to you in chat).";
 
         public override CommandType Type => CommandType.Chat;
 
@@ -21,14 +21,14 @@ namespace ManyMoreMobs
         {
             if (args.Length == 0)
             {
-                Main.NewText(Usage);
+                caller.Reply(Usage);
                 return;
             }
 
             switch (args[0].ToLower())
             {
                 case "counts":
-                    PrintCounts();
+                    PrintCounts(caller);
                     break;
 
                 case "dump":
@@ -36,8 +36,8 @@ namespace ManyMoreMobs
                     string report = EngineDiagnostics.BuildStateReport();
                     MmmLog.Dump("/debugnpc dump", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
-                        Main.NewText(line.TrimEnd());
-                    Main.NewText("[MMM] full dump written to ManyMoreMobs-state.log");
+                        caller.Reply(line.TrimEnd());
+                    caller.Reply("[MMM] full dump written to ManyMoreMobs-state.log");
                     break;
                 }
 
@@ -46,7 +46,7 @@ namespace ManyMoreMobs
                     string report = EngineDiagnostics.BuildSpawnInfoReport(caller.Player);
                     MmmLog.Dump("/debugnpc spawninfo", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
-                        Main.NewText(line.TrimEnd());
+                        caller.Reply(line.TrimEnd());
                     break;
                 }
 
@@ -55,7 +55,7 @@ namespace ManyMoreMobs
                     string report = EngineDiagnostics.BuildEventReport();
                     MmmLog.Dump("/debugnpc event", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
-                        Main.NewText(line.TrimEnd());
+                        caller.Reply(line.TrimEnd());
                     break;
                 }
 
@@ -64,7 +64,7 @@ namespace ManyMoreMobs
                     string report = EngineDiagnostics.BuildImmunityReport(caller.Player);
                     MmmLog.Dump("/debugnpc immune", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
-                        Main.NewText(line.TrimEnd());
+                        caller.Reply(line.TrimEnd());
                     break;
                 }
 
@@ -72,14 +72,24 @@ namespace ManyMoreMobs
                 {
                     string report = EngineDiagnostics.BuildHitTestReport(caller.Player);
                     MmmLog.Dump("/debugnpc hittest", report);
-                    Main.NewText(report);
+                    caller.Reply(report);
                     break;
                 }
 
                 case "track":
                 {
+                    // The tracker hangs off client-side projectile hooks keyed to Main.myPlayer. A Chat command
+                    // runs on the SERVER in multiplayer, where there is no local player, so it would silently
+                    // record nothing. Say so rather than hand back an empty log — a tracker that produces
+                    // nothing reads as "no problem found" when it means "never measured".
+                    if (Main.netMode != NetmodeID.SinglePlayer)
+                    {
+                        caller.Reply("[MMM] /debugnpc track is single-player only — it hooks client-side projectile updates and would log nothing here.");
+                        break;
+                    }
+
                     string msg = HitTracker.Toggle();
-                    Main.NewText("[MMM] " + msg);
+                    caller.Reply("[MMM] " + msg);
                     break;
                 }
 
@@ -87,7 +97,7 @@ namespace ManyMoreMobs
                 {
                     string report = EngineDiagnostics.BuildValidationReport(out int anomalies);
                     MmmLog.Dump("/debugnpc validate", report);
-                    Main.NewText(anomalies == 0
+                    caller.Reply(anomalies == 0
                         ? "[MMM] validate: no anomalies. (details in ManyMoreMobs-state.log)"
                         : $"[MMM] validate: {anomalies} ANOMALIES — see ManyMoreMobs-state.log");
                     break;
@@ -97,13 +107,13 @@ namespace ManyMoreMobs
                 {
                     if (args.Length < 2 || !int.TryParse(args[1], out int index))
                     {
-                        Main.NewText("Usage: /debugnpc slot <index>");
+                        caller.Reply("Usage: /debugnpc slot <index>");
                         break;
                     }
                     string report = EngineDiagnostics.BuildSlotReport(index);
                     MmmLog.Dump($"/debugnpc slot {index}", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
-                        Main.NewText(line.TrimEnd());
+                        caller.Reply(line.TrimEnd());
                     break;
                 }
 
@@ -113,7 +123,7 @@ namespace ManyMoreMobs
                     int amount = 1;
                     if (args.Length > 2 && int.TryParse(args[2], out int a))
                         amount = Math.Clamp(a, 1, 1000);
-                    SpawnTest(caller.Player, category, amount);
+                    SpawnTest(caller, caller.Player, category, amount);
                     break;
                 }
 
@@ -121,13 +131,13 @@ namespace ManyMoreMobs
                 {
                     if (args.Length < 2)
                     {
-                        Main.NewText("Usage: /debugnpc boss <name>");
-                        Main.NewText("Known: " + string.Join(", ", BossList));
+                        caller.Reply("Usage: /debugnpc boss <name>");
+                        caller.Reply("Known: " + string.Join(", ", BossList));
                         break;
                     }
                     // Join the remaining words so "king slime" / "moon lord" work as well as "kingslime".
                     string name = string.Concat(args.Skip(1)).ToLower();
-                    SpawnBoss(caller.Player, name);
+                    SpawnBoss(caller, caller.Player, name);
                     break;
                 }
 
@@ -139,12 +149,12 @@ namespace ManyMoreMobs
                         if (npc.active && npc.townNPC)
                         {
                             npc.StrikeInstantKill();
-                            Main.NewText($"Killed {npc.GivenName}");
+                            caller.Reply($"Killed {npc.GivenName}");
                             return;
                         }
                     }
 
-                    Main.NewText("No living town NPC.");
+                    caller.Reply("No living town NPC.");
                     break;
                 }
 
@@ -161,17 +171,17 @@ namespace ManyMoreMobs
                         }
                     }
 
-                    Main.NewText(found ? "Killed all town NPCs." : "No living town NPC.");
+                    caller.Reply(found ? "Killed all town NPCs." : "No living town NPC.");
                     break;
                 }
 
                 default:
-                    Main.NewText(Usage);
+                    caller.Reply(Usage);
                     break;
             }
         }
 
-        private static void PrintCounts()
+        private static void PrintCounts(CommandCaller caller)
         {
             var counts = CategoryCounts.Snapshot();
             var config = ModContent.GetInstance<ManyMoreMobsConfig>();
@@ -184,13 +194,13 @@ namespace ManyMoreMobs
                 .GetField(nameof(Main.maxNPCs), BindingFlags.Public | BindingFlags.Static)
                 ?.GetValue(null) ?? -1);
 
-            Main.NewText($"[MMM] mode={config.CapMode} target={config.MaxNPCTotal} applied={MaxNpcCapRaise.AppliedCap}");
-            Main.NewText($"[MMM] maxNPCs direct={directMaxNPCs} reflection={reflectionMaxNPCs} npc.Length={Main.npc.Length}");
-            Main.NewText($"[MMM] effectiveTotal={config.EffectiveTotal}  caps T/B/C/E = {caps.town}/{caps.boss}/{caps.critter}/{caps.enemy}");
-            Main.NewText($"[MMM] active   T/B/C/E = {counts.town}/{counts.boss}/{counts.critter}/{counts.enemy}");
+            caller.Reply($"[MMM] mode={config.CapMode} target={config.MaxNPCTotal} applied={MaxNpcCapRaise.AppliedCap}");
+            caller.Reply($"[MMM] maxNPCs direct={directMaxNPCs} reflection={reflectionMaxNPCs} npc.Length={Main.npc.Length}");
+            caller.Reply($"[MMM] effectiveTotal={config.EffectiveTotal}  caps T/B/C/E = {caps.town}/{caps.boss}/{caps.critter}/{caps.enemy}");
+            caller.Reply($"[MMM] active   T/B/C/E = {counts.town}/{counts.boss}/{counts.critter}/{counts.enemy}");
         }
 
-        private static void SpawnTest(Player player, string category, int amount)
+        private static void SpawnTest(CommandCaller caller, Player player, string category, int amount)
         {
             // Representative vanilla NPC per category. Enemy/critter spawns go through NewNpcGate, so they
             // respect the caps (a blocked spawn returns the failure slot and is counted below).
@@ -213,7 +223,7 @@ namespace ManyMoreMobs
                         type = rawType;
                         break;
                     }
-                    Main.NewText("Unknown category. Use: town | enemy | critter | boss | rare | truffle | <type id>");
+                    caller.Reply("Unknown category. Use: town | enemy | critter | boss | rare | truffle | <type id>");
                     return;
             }
 
@@ -239,20 +249,20 @@ namespace ManyMoreMobs
 
             string label = Lang.GetNPCNameValue(type);
             if (amount == 1)
-                Main.NewText(ok == 1
+                caller.Reply(ok == 1
                     ? $"Spawned {label} ({category})."
                     : $"{category} spawn blocked or failed (cap reached / no free slot).");
             else
-                Main.NewText($"{category} ({label}): spawned {ok}/{amount}{(fail > 0 ? $", {fail} blocked (cap reached)" : "")}.");
+                caller.Reply($"{category} ({label}): spawned {ok}/{amount}{(fail > 0 ? $", {fail} blocked (cap reached)" : "")}.");
         }
 
-        private static void SpawnBoss(Player player, string name)
+        private static void SpawnBoss(CommandCaller caller, Player player, string name)
         {
             int type = ResolveBoss(name);
             if (type <= 0)
             {
-                Main.NewText($"Unknown boss '{name}'.");
-                Main.NewText("Known: " + string.Join(", ", BossList));
+                caller.Reply($"Unknown boss '{name}'.");
+                caller.Reply("Known: " + string.Join(", ", BossList));
                 return;
             }
 
@@ -261,14 +271,14 @@ namespace ManyMoreMobs
             {
                 NPC.SpawnOnPlayer(player.whoAmI, NPCID.Retinazer);
                 NPC.SpawnOnPlayer(player.whoAmI, NPCID.Spazmatism);
-                Main.NewText("Spawned The Twins.");
+                caller.Reply("Spawned The Twins.");
                 return;
             }
 
             // SpawnOnPlayer is the vanilla boss-summon path (handles music/broadcast). A few bosses (Wall of
             // Flesh, Moon Lord) have unusual spawn sequences and may behave oddly when forced this way.
             NPC.SpawnOnPlayer(player.whoAmI, type);
-            Main.NewText($"Spawned {Lang.GetNPCNameValue(type)} (type {type}).");
+            caller.Reply($"Spawned {Lang.GetNPCNameValue(type)} (type {type}).");
         }
 
         private static int ResolveBoss(string name)

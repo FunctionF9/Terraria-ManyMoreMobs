@@ -27,6 +27,13 @@ weapons one at a time, with the tracker on, is slower but it actually converges.
 | Damage decay | `projDmg=` shrinking hit to hit | Per-type falloff — needs a No Pierce Falloff toggle for that class |
 | Pierce cap | Hits stop after N enemies, `projDmg` unchanged | Vanilla `penetrate` limit — Extra Pierce covers it |
 | Slot blindness | Hits only ever land on slots < 200 | An unpatched `0-199` loop — run `tools/audit-npc-loops.sh` |
+| Decayed to nothing | `projDmg=0` and then **no hits at all** | Not a separate bug — the end state of decay. See below. |
+
+**The trap:** `Projectile.Damage()` wraps its whole NPC loop in `if (damage > 0)`. Once a projectile's damage
+decays to zero it stops *attempting* hits rather than landing weak ones — no hit registers, no damage number,
+nothing in the tracker. That is indistinguishable from an invulnerable enemy, a targeting failure or an
+unpatched loop, and it is why "enemies are immune" reports kept arriving after the hit-immunity bug was
+already fixed. Before chasing immunity or slot coverage, check whether `projDmg` reached 0 first.
 
 A trace with **no lines at all** means the tracker didn't measure the weapon, not that the weapon is fine.
 Check the filters before concluding anything.

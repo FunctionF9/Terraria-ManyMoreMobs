@@ -7,7 +7,7 @@ If you would prefer vanilla 200-limit, a Default mode leaves the regular 200 ent
 
 [h3]Disclaimer[/h3]
 This mod was built with use of [b]AI Assistance[/b]. 
-The mod has been play-tested across 1 full playthrough, but I'm only one guy, so thorough testing has been limited.
+The mod has been  testing has been limited, mostly solo tested locally.
 The mod patches the game engine at a low level and is still very much in [b]early access[/b]!
 Expect rough edges, please play on a [b]fresh world, with a fresh character[/b], please report any bugs/oddities you find, feedback would really help prioritize next fixes.
 [b]Github:[/b] https://github.com/FunctionF9/Terraria-ManyMoreMobs
@@ -99,7 +99,7 @@ The four caps decide how that budget gets split:
 
 [h2]Known Bugs and Limitations[/h2]
 [list]
-[*]Multiplayer is not supported [i]yet[/i] (ref Warnings above).
+[*]Multiplayer is not supported [i]yet[/i] (ref Warnings above). This build adds [i]experimental[/i] MP fixes (on by default) for critter catching, i-frames and debuffs. Less broken, still unsupported. Treat any MP session as a test run and please report what breaks.
 [*]Config sliders snap and jank with wide ranges, a limitation of tModLoader's default config screen. A nicer custom config UI is a dream for later.
 [*]Expanded mode only: if you push Enemy/Critter caps past what the Expanded slots can hold (Max Total - 200), the overflow can block Town NPC / Boss spawns - despawn-to-make-room doesn't tell low from high slots in Expanded yet. Keep the four caps within Max Total NPCs (the defaults do). Fix coming.
 [*]Enemies in the expanded slots don't yet have custom map icons / bestiary polish.

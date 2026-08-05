@@ -6,7 +6,7 @@ Configs: {
 			Mode: 1. Mode - world NPC capacity
 			CategoryCaps: 2. NPC slots per category
 			SpawnRate: 3. Spawn rate and density
-			Debug: 4. Debugging
+			DebugAndExperimental: 4. Debugging & Experimental
 		}
 
 		SpawnRateMultiplier: {
@@ -142,6 +142,16 @@ Configs: {
 
 				Auto-writes diagnostics to ManyMoreMobs-state.log on world load and before each save.
 				/debugnpc commands always log anyway.
+				'''
+		}
+
+		ExperimentalMultiplayerFixes: {
+			Label: Experimental Multiplayer Fixes
+			Tooltip:
+				'''
+				! Multiplayer is still NOT supported. This is a best-effort experiment, untested by me, so treat any multiplayer session as a test run.
+				Terraria's netcode throws away several packets aimed at NPCs living in the expanded slots, which is why critters in multiplayer go into the net and straight back out again. This widens those checks so the packets land: critter catching, enemy invulnerability frames, debuff removal, and the batch of NPCs a joining player gets sent.
+				Does nothing at all in single-player. Host decides for the session, and it applies live with no reload. Off = untouched vanilla netcode.
 				'''
 		}
 	}

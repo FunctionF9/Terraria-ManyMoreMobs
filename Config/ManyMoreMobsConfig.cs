@@ -106,12 +106,20 @@ namespace ManyMoreMobs
         [DefaultValue(5f)]
         public float LacewingSpawnBoost { get; set; } = 5f;
 
-        // ── 4. Debugging ───────────────────────────────────────────────────────────────────────────
+        // ── 4. Debugging & experimental ────────────────────────────────────────────────────────────
         // Auto-dumps state to ManyMoreMobs-state.log on world load and before each save. /debugnpc commands
         // always log regardless. Leave off for normal play.
-        [Header("Debug")]
+        [Header("DebugAndExperimental")]
         [DefaultValue(false)]
         public bool DebugMode { get; set; } = false;
+
+        // Widens the hardcoded 200-slot bounds checks in Terraria's packet handlers so messages aimed at
+        // expanded-zone NPCs aren't silently discarded (critter catching, NPC i-frame sync, buff removal, the
+        // initial NPC handoff on join). Multiplayer is still NOT supported — these are best-effort fixes for
+        // reported symptoms and are untested by the author. Lives in MMMultiplayer/, checked live (no reload),
+        // and does nothing at all in single-player. Off = vanilla packet handling.
+        [DefaultValue(true)]
+        public bool ExperimentalMultiplayerFixes { get; set; } = true;
 
         /// <summary>
         /// The total NPC budget actually available right now. Uses <see cref="MaxNpcCapRaise.AppliedCap"/>
