@@ -45,6 +45,12 @@ namespace ManyMoreMobs
 
         private int _tick;
 
+        // Every other subsystem logs a line when it installs itself, which is how a log read can answer "did
+        // this actually apply?" — the question that turned out to matter when a broadcast patch was silently
+        // matching nothing. A ModSystem installs no hook, so it has to say so explicitly.
+        public override void OnModLoad()
+            => Mod.Logger.Info($"[MMM] Slot rezoner active (Town NPCs above slot {VanillaHorizon} return to the low zone).");
+
         public override void PostUpdateNPCs()
         {
             // Slot assignment is server-authoritative. A client relocating on its own would disagree with the
@@ -147,9 +153,20 @@ namespace ManyMoreMobs
         private static void Relocate(int from, int to)
         {
             NPC moving = Main.npc[from];
+            string name = moving.TypeName;
+            bool server = Main.netMode == NetmodeID.Server;
 
-            // Vacate first, so the SyncNPC for the old slot below reads the inactive placeholder and tells
-            // clients the NPC is gone from there.
+            // Retire the old index while the NPC is still sitting in it, so the packet carries its real type
+            // with life 0 — the ordinary "this NPC is gone" sync every client already knows how to apply, and
+            // the same shape EntityEvictor uses. Announcing the vacated slot BEFORE the new one matters: a
+            // client that applied them the other way round would briefly hold the same town NPC twice.
+            if (server)
+            {
+                moving.active = false;
+                NetMessage.SendData(MessageID.SyncNPC, -1, -1, null, from);
+                moving.active = true;
+            }
+
             NPC vacated = new NPC();
             vacated.SetDefaults(NPCID.None);
             vacated.whoAmI = from;
@@ -162,15 +179,10 @@ namespace ManyMoreMobs
 
             NewNpcGate.MoveBossChainTag(from, to);
 
-            if (Main.netMode == NetmodeID.Server)
-            {
-                // Order matters: clear the old index before announcing the new one, or a client processing
-                // them out of order can end up drawing the same town NPC twice.
-                NetMessage.SendData(MessageID.SyncNPC, -1, -1, null, from);
+            if (server)
                 NetMessage.SendData(MessageID.SyncNPC, -1, -1, null, to);
-            }
 
-            MmmLog.Info($"Rezoned town NPC '{moving.TypeName}' (type {moving.type}) from slot {from} to {to}.");
+            MmmLog.Info($"Rezoned town NPC '{name}' (type {moving.type}) from slot {from} to {to}.");
         }
     }
 }

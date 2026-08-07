@@ -33,6 +33,15 @@ namespace ManyMoreMobs
 
         // Hardcoded per-type active caps. Frost Moon wave 20 removes vanilla's cap on these bosses, so they
         // churn under the raised cap; limit them (a bit higher than Pumpkin Moon's 2/2/3 since Frost is harder).
+        //
+        // ROOT CAUSE, found 0.7.6.4 and NOT yet fixed — this dictionary is a symptom patch. NPC.SpawnNPC opens
+        // with a 0-199 loop summing `npcSlots` for exactly this family (Headless Horseman, Mourning Wood,
+        // Pumpking + blades, Everscream, Ice Queen, Santa-NK1) into a budget that gates further spawns of them.
+        // Every one of them is Enemy-category, so under the raised cap they sit above 199, the budget stays
+        // near zero and vanilla's own density gate never trips. Widening that loop would restore the real
+        // limiter and make these hardcoded numbers redundant — but it also changes Moon event pacing, so it is
+        // a balance decision, not a hotfix. The audit reported that loop as PATCHED until 0.7.6.4, which is
+        // why it was never triaged: NPC.SpawnNPC is hooked twice for unrelated reasons.
         private static readonly Dictionary<int, int> PerTypeActiveCaps = new()
         {
             [NPCID.Everscream] = 10,

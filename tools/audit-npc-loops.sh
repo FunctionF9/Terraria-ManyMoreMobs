@@ -46,11 +46,14 @@ PATCHER="$REPO_DIR/Engine/EngineILPatcher.cs"
 OUT="${1:-$REPO_DIR/tools/audit-report.md}"
 WORK="${TMPDIR:-/tmp}/mmm-audit"
 
-# The four types that hold essentially every NPC-indexed loop in the game.
-# Item joined the list in 0.7.6.2: a player reported the Copper Town Slime being unobtainable, and the cause
-# was a plain 0-199 NPC loop in Item.GetPickedUpByMonsters_Special that this audit had never looked at.
-# If a report points at a system none of these types own, widen this list before assuming the code is fine.
-TYPES="Player Projectile Main NPC Item"
+# Types holding NPC-indexed loops. Fully-qualified; the leaf name is used for filenames and report headings.
+#
+# This list has been WRONG TWICE, both times found by a player report rather than by the audit:
+#   0.7.6.2  Terraria.Item was missing      -> Copper Town Slime unobtainable (GetPickedUpByMonsters_Special)
+#   0.7.6.4  DD2Event was missing            -> Old One's Army triage had to be done by hand
+# Widen this list before concluding that code is fine. An absent type reads exactly like a clean audit.
+TYPES="Terraria.Player Terraria.Projectile Terraria.Main Terraria.NPC Terraria.Item
+       Terraria.GameContent.Events.DD2Event"
 
 command -v ilspycmd >/dev/null 2>&1 || {
     echo "error: ilspycmd not found on PATH (dotnet tool install --global ilspycmd --version 8.0.0.7345)" >&2
@@ -61,12 +64,15 @@ command -v ilspycmd >/dev/null 2>&1 || {
 
 mkdir -p "$WORK"
 
+# Leaf name of a fully-qualified type — used for the cache filename and the report heading.
+leaf() { echo "${1##*.}"; }
+
 # ── 1. Decompile (cached; refresh whenever the dll is newer than our copy) ──
 for t in $TYPES; do
-    src="$WORK/$t.cs"
+    src="$WORK/$(leaf "$t").cs"
     if [ ! -s "$src" ] || [ "$TML_DLL" -nt "$src" ]; then
-        echo "decompiling Terraria.$t ..." >&2
-        ilspycmd "$TML_DLL" -t "Terraria.$t" > "$src" 2>/dev/null
+        echo "decompiling $t ..." >&2
+        ilspycmd "$TML_DLL" -t "$t" > "$src" 2>/dev/null
     fi
 done
 
@@ -99,28 +105,78 @@ inventory() {
 }
 
 : > "$WORK/loops.tsv"
-for t in $TYPES; do inventory "$t" >> "$WORK/loops.tsv"; done
+for t in $TYPES; do inventory "$(leaf "$t")" >> "$WORK/loops.tsv"; done
 
 # ── 3. Parse the patch registry out of EngineILPatcher.cs ──
 # Explicit call shapes only — a loose "any quoted string" grep would mark gaps
 # as covered, and a false PATCHED is far worse than a false GAP here.
+#
+# PATCHED must mean "this method's NPC LOOPS were widened", not "this method is hooked for something".
+# It used to mean the latter, via a blanket `typeof(X).GetMethod("Y"` grep, and that hid a real bug for
+# months: NPC.SpawnNPC is hooked twice (spawn-item modifiers, rare-spawn rolls), neither of which touches
+# a loop bound, so both of its 0-199 loops reported as covered. One of them is the Pumpkin/Frost Moon
+# miniboss density budget. So an Apply() only counts when its MANIPULATOR is a loop-widening one.
+#
+# ALLOWLIST, and deliberately so: an unlisted manipulator counts as NOT covering loops, so a new one added
+# to the patcher shows up as a GAP until it is named here. That is the safe direction to be wrong in — a
+# spurious GAP costs one triage, a spurious PATCHED costs a bug report. Keep in sync with EngineILPatcher.
+# NOT loop-widening, on purpose: Patch_RareSpawnRolls, Patch_SpawnItemModifiers, Patch_SpawnNpcSentinel,
+# Patch_SingleLiteral200, Patch_LocalImmunityDecrement, Patch_ResetLocalImmunity, Patch_ScaleMoonWave.
+LOOP_MANIPULATORS='Patch_NpcLoops|Patch_AllNpcLoopBounds200|Patch_ChaseLoops|Patch_DrawLoop'
+LOOP_MANIPULATORS="$LOOP_MANIPULATORS|Patch_HealthBars|Patch_InfoAccessories|Patch_MeleeHitNPCs"
+LOOP_MANIPULATORS="$LOOP_MANIPULATORS|Patch_TownNPCCombat|Patch_UpdateLoop"
 {
-    # PatchMethod / PatchNpcLoops / PatchChaseLoops (mod, typeof(Type), "Name")
+    # PatchMethod / PatchNpcLoops / PatchChaseLoops (mod, typeof(Type), "Name") — all widen loops.
     grep -oE 'Patch(Method|NpcLoops|ChaseLoops)\(mod, typeof\([A-Za-z]+\), "[A-Za-z0-9_]+"' "$PATCHER" \
         | sed -E 's/.*typeof\(([A-Za-z]+)\), "([A-Za-z0-9_]+)"/\1::\2/'
-    # typeof(Type).GetMethod("Name" ...) and GetMethod(nameof(Type.Name) ...)
-    grep -oE 'typeof\([A-Za-z]+\)\.GetMethod\("[A-Za-z0-9_]+"' "$PATCHER" \
-        | sed -E 's/typeof\(([A-Za-z]+)\)\.GetMethod\("([A-Za-z0-9_]+)"/\1::\2/'
-    grep -oE 'typeof\([A-Za-z]+\)\.GetMethod\(nameof\([A-Za-z]+\.[A-Za-z0-9_]+\)' "$PATCHER" \
-        | sed -E 's/typeof\(([A-Za-z]+)\)\.GetMethod\(nameof\([A-Za-z]+\.([A-Za-z0-9_]+)\)/\1::\2/'
+    # Apply(mod, "label", typeof(Type).GetMethod("Name"/nameof(Type.Name) ...), <Manipulator>);
+    # Multi-line: accumulate from `Apply(` to the closing `);`, then keep it only if the manipulator qualifies.
+    awk -v MANIP="$LOOP_MANIPULATORS" '
+        /(^|[^A-Za-z_])Apply\(mod,/ { acc = $0; open = 1; next }
+        open { acc = acc " " $0 }
+        open && /\);[[:space:]]*$/ {
+            open = 0
+            if (acc !~ ("(" MANIP ")[[:space:]]*\\)")) next
+            if (match(acc, /typeof\([A-Za-z]+\)\.GetMethod\("[A-Za-z0-9_]+"/)) {
+                s = substr(acc, RSTART, RLENGTH)
+                gsub(/typeof\(|\)\.GetMethod\("|"/, " ", s)
+                split(s, p, " +"); print p[2] "::" p[3]
+            } else if (match(acc, /typeof\([A-Za-z]+\)\.GetMethod\(nameof\([A-Za-z]+\.[A-Za-z0-9_]+\)/)) {
+                s = substr(acc, RSTART, RLENGTH)
+                gsub(/typeof\(|\)\.GetMethod\(nameof\(|\)/, " ", s)
+                gsub(/\./, " ", s)
+                split(s, p, " +"); print p[2] "::" p[4]
+            }
+        }
+    ' "$PATCHER"
     # ChaseLoopAIMethods[] — every entry is a Projectile AI method.
     sed -n '/ChaseLoopAIMethods *=/,/};/p' "$PATCHER" \
         | grep -oE '"[A-Za-z0-9_]+"' | tr -d '"' | sed 's/^/Projectile::/'
+    # foreach (string name in new[] { "A", "B" }) ... $"Type.{name}"
+    # The DD2Event patches are registered this way. Without this rule they read as GAPs, and a report full of
+    # phantom gaps is barely better than no report — you stop trusting the ones that are real.
+    awk '
+        /foreach *\(string name in new\[\] *\{/ { names = $0; sub(/.*\{/, "", names); pending = 6; next }
+        pending > 0 {
+            pending--
+            if (match($0, /\$"[A-Za-z][A-Za-z0-9_]*\.\{name\}/)) {
+                type = substr($0, RSTART + 2, RLENGTH - 9)
+                n = split(names, parts, ",")
+                for (i = 1; i <= n; i++) {
+                    m = parts[i]
+                    gsub(/[^A-Za-z0-9_]/, "", m)
+                    if (m != "") print type "::" m
+                }
+                pending = 0
+            }
+        }
+    ' "$PATCHER"
 } | sort -u > "$WORK/patched.txt"
 
-# AUDIT-SKIP: Type.Method — reason
-grep -oE 'AUDIT-SKIP: *[A-Za-z]+\.[A-Za-z0-9_]+' "$PATCHER" 2>/dev/null \
-    | sed -E 's/AUDIT-SKIP: *([A-Za-z]+)\.([A-Za-z0-9_]+)/\1::\2/' | sort -u > "$WORK/skipped.txt" || : > "$WORK/skipped.txt"
+# AUDIT-SKIP: Type.Method — reason. Type names may contain digits (DD2Event), which an [A-Za-z]+ class
+# silently rejects — the skip then reads as an un-triaged GAP forever.
+grep -oE 'AUDIT-SKIP: *[A-Za-z][A-Za-z0-9_]*\.[A-Za-z0-9_]+' "$PATCHER" 2>/dev/null \
+    | sed -E 's/AUDIT-SKIP: *([A-Za-z][A-Za-z0-9_]*)\.([A-Za-z0-9_]+)/\1::\2/' | sort -u > "$WORK/skipped.txt" || : > "$WORK/skipped.txt"
 
 # ── 4. Report ──
 {
@@ -149,10 +205,10 @@ grep -oE 'AUDIT-SKIP: *[A-Za-z]+\.[A-Za-z0-9_]+' "$PATCHER" 2>/dev/null \
     echo
 
     for t in $TYPES; do
-        echo "## Terraria.$t"
+        echo "## $t"
         echo
         printf '| Status | Method | Line | Loop |\n|---|---|---|---|\n'
-        awk -F'\t' -v T="$t" '$1 == T' "$WORK/loops.tsv" | sort -t$'\t' -k2,2 -k3,3n |
+        awk -F'\t' -v T="$(leaf "$t")" '$1 == T' "$WORK/loops.tsv" | sort -t$'\t' -k2,2 -k3,3n |
         while IFS=$'\t' read -r type method line code; do
             key="$type::$method"
             if grep -qxF "$key" "$WORK/skipped.txt"; then status="SKIP"

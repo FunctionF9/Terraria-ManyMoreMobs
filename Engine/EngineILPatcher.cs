@@ -224,6 +224,15 @@ namespace ManyMoreMobs
             // a Guide Voodoo Doll hits lava. Town NPCs are always zoned into the low slots, so the loop already
             // finds him; widening it would be a no-op.
 
+            // ── Dummy-slot sentinels (0.7.6.4). A DIFFERENT failure shape from the loop bounds above, and one
+            // the loop audit cannot see. Vanilla uses the literal 200 as a safe "no NPC here" index precisely
+            // BECAUSE Main.npc[200] is the inert dummy slot at the end of a 201-long array. Raising the cap
+            // turns index 200 into an ordinary, occupied enemy slot, so those sentinels stop being harmless
+            // and start aliasing a live NPC. ──
+            Apply(mod, "NPC.SpawnNPC (dummy-slot sentinel)",
+                typeof(NPC).GetMethod("SpawnNPC", BindingFlags.Public | BindingFlags.Static),
+                Patch_SpawnNpcSentinel);
+
             // Whip / minion target marker: the reticle drawn over the minion-attack-target (and whip-tagged)
             // NPC is in DrawInterface_1_2_DrawEntityMarkersInWorld, which scans only 0-199 — so no marker
             // appears over enemies in slots 200+. Single NPC loop in the method, so blanket-safe.
@@ -718,6 +727,81 @@ namespace ManyMoreMobs
             c2.Emit(OpCodes.Sub);      // NpcCap - 1
         }
 
+        /// <summary>
+        /// Moves <c>NPC.SpawnNPC</c>'s "nothing spawned" sentinel off the now-occupied slot 200.
+        /// <para/>
+        /// The method opens with <c>int newNPC = 200;</c> and closes with, unconditionally:
+        /// <code>
+        /// if (Main.npc[newNPC].type == 1 &amp;&amp; Main.player[k].RollLuck(180) == 0)
+        ///     Main.npc[newNPC].SetDefaults(-4);              // Blue Slime -> Pinky
+        /// </code>
+        /// In vanilla that is safe by construction: <c>Main.npc[200]</c> is the dummy slot at the end of a
+        /// 201-long array, permanently type 0, so the test can never pass. Raise the cap and slot 200 becomes
+        /// an ordinary expanded enemy slot — so on any spawn attempt that leaves the sentinel untouched, the
+        /// game inspects whoever is standing in slot 200 and can reroll them into a Pinky (or, on a tenth
+        /// anniversary world, a Bunny) in place. Rare, cosmetic, and utterly unattributable in a bug report.
+        /// <para/>
+        /// <b>Anchored, not blanket:</b> the method holds 15 separate <c>200</c> literals. The one
+        /// <c>call NPCLoader.SpawnNPC</c> in the method is followed by the store that names <c>newNPC</c>, and
+        /// exactly one <c>ldc.i4 200</c> in the whole body feeds a store to that same local — the initializer.
+        /// <para/>
+        /// This is a cap consequence, not a network one, so it lives here and applies unconditionally. The
+        /// multiplayer patcher widens the same class of sentinel in the Old One's Army gate spawners, where
+        /// the only symptom is a redundant broadcast; whichever runs first wins and the other finds nothing.
+        /// </summary>
+        private static void Patch_SpawnNpcSentinel(ILContext il)
+        {
+            var c = new ILCursor(il);
+            if (!c.TryGotoNext(i => i.Operand is MethodReference mr
+                                    && mr.Name == "SpawnNPC"
+                                    && mr.DeclaringType?.Name == "NPCLoader"))
+                throw new Exception("anchor call NPCLoader.SpawnNPC not found");
+
+            // The store immediately after the call is `newNPC = ...`.
+            Instruction store = c.Next?.Next;
+            while (store != null && store.OpCode == OpCodes.Nop)
+                store = store.Next;
+
+            int local = StoreLocalIndex(store);
+            if (local < 0)
+                throw new Exception("store into newNPC not found after the anchor");
+
+            var c2 = new ILCursor(il);
+            int widened = 0;
+            while (c2.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            {
+                Instruction after = c2.Next.Next;
+                while (after != null && after.OpCode == OpCodes.Nop)
+                    after = after.Next;
+
+                if (StoreLocalIndex(after) == local)
+                {
+                    ReplaceWithNpcCap(c2, il);
+                    widened++;
+                }
+                c2.Index++;
+            }
+
+            if (widened != 1)
+                throw new Exception($"expected exactly one `ldc.i4 200 -> stloc newNPC`, found {widened}");
+        }
+
+        /// <summary>Local index a stloc writes to, in any encoding; -1 if the instruction is not a store.</summary>
+        private static int StoreLocalIndex(Instruction instr)
+        {
+            if (instr == null)
+                return -1;
+
+            OpCode op = instr.OpCode;
+            if (op == OpCodes.Stloc_0) return 0;
+            if (op == OpCodes.Stloc_1) return 1;
+            if (op == OpCodes.Stloc_2) return 2;
+            if (op == OpCodes.Stloc_3) return 3;
+            if (op != OpCodes.Stloc && op != OpCodes.Stloc_S) return -1;
+
+            return instr.Operand is VariableDefinition v ? v.Index : -1;
+        }
+
         // Discrete projectile AIs (outside the monolithic AI()) that contain their own NPC-target scan.
         private static readonly string[] ChaseLoopAIMethods =
         {
@@ -925,6 +1009,11 @@ namespace ManyMoreMobs
                 Apply(mod, $"DD2Event.{name}",
                     dd2.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static),
                     Patch_NpcLoops);
+
+            // AUDIT-SKIP: DD2Event.IsStandActive — its 0-199 scan looks only for the Eternia Crystal (type 548),
+            // which IsStructuralLowZone pins into the low zone at spawn, so the loop always finds it. Left alone
+            // deliberately: it also drives the "right-click to skip the wait" interaction, and a needless widen
+            // there would scan the whole expanded array on every hover.
 
             // OOA wave length: scale required kills per wave (EventsConfig).
             MethodInfo getStatus = dd2.GetMethod("GetInvasionStatus", BindingFlags.NonPublic | BindingFlags.Static);

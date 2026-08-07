@@ -7,7 +7,7 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 - **PATCHED** — a patch targets this method. (Presence, not proof: verify the patch still matches.)
 - **SKIP** — deliberately excluded via an `AUDIT-SKIP` comment in the patcher.
 
-**225 NPC loops found · 116 in un-patched methods.**
+**231 NPC loops found · 118 in un-patched methods.**
 
 ## Terraria.Player
 
@@ -210,8 +210,8 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 | **GAP** | `RerollVariationForNPCType` | 91729 | `for (int i = 0; i < 200; i++)` |
 | **GAP** | `ResetNetOffsets` | 107459 | `for (int i = 0; i < 200; i++)` |
 | **GAP** | `ShouldEmpressBeEnraged` | 47098 | `for (int i = 0; i < 200; i++)` |
-| PATCHED | `SpawnNPC` | 86406 | `for (int j = 0; j < 200; j++)` |
-| PATCHED | `SpawnNPC` | 86464 | `for (int l = 0; l < 200; l++)` |
+| **GAP** | `SpawnNPC` | 86406 | `for (int j = 0; j < 200; j++)` |
+| **GAP** | `SpawnNPC` | 86464 | `for (int l = 0; l < 200; l++)` |
 | **GAP** | `SpawnSkeletron` | 91037 | `for (int i = 0; i < 200; i++)` |
 | **GAP** | `SpawnSkeletron` | 91045 | `for (int j = 0; j < 200; j++)` |
 | **GAP** | `StrikeNPC` | 92434 | `for (int i = 0; i < 200; i++)` |
@@ -258,4 +258,15 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 | SKIP | `CheckLavaDeath` | 50435 | `for (int k = 0; k < 200; k++)` |
 | PATCHED | `GetPickedUpByMonsters_Money` | 50898 | `for (int j = 0; j < 200; j++)` |
 | PATCHED | `GetPickedUpByMonsters_Special` | 50873 | `for (int j = 0; j < 200; j++)` |
+
+## Terraria.GameContent.Events.DD2Event
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
+| PATCHED | `ClearAllDD2HostilesInGame` | 636 | `for (int i = 0; i < 200; i++)` |
+| PATCHED | `DropMedals` | 864 | `for (int i = 0; i < 200; i++)` |
+| PATCHED | `DropStarterCrystals` | 994 | `for (int i = 0; i < 200; i++)` |
+| PATCHED | `FindArenaHitbox` | 818 | `for (int i = 0; i < 200; i++)` |
+| SKIP | `IsStandActive` | 1840 | `for (int i = 0; i < 200; i++)` |
+| PATCHED | `StartVictoryScene` | 471 | `for (int i = 0; i < 200; i++)` |
 

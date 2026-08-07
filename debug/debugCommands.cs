@@ -12,7 +12,7 @@ namespace ManyMoreMobs
     {
         public override string Command => "debugnpc";
         public override string Usage =>
-            "/debugnpc <counts|dump|validate|spawninfo|event|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
+            "/debugnpc <version|counts|dump|validate|spawninfo|event|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
         public override string Description => "Many More Mobs debug: inspect counts/state/spawn rate, validate arrays, test spawning. Full reports go to ManyMoreMobs-state.log (on the SERVER's machine in multiplayer; the summary still comes back to you in chat).";
 
         public override CommandType Type => CommandType.Chat;
@@ -175,9 +175,45 @@ namespace ManyMoreMobs
                     break;
                 }
 
+                case "version":
+                    PrintVersion(caller);
+                    break;
+
                 default:
                     caller.Reply(Usage);
                     break;
+            }
+        }
+
+        /// <summary>
+        /// Reports which build is ACTUALLY running, and where.
+        /// <para/>
+        /// Exists because of a real diagnostic dead end: a player reported a bug that had already been fixed
+        /// and released, and there was no way to tell from the outside whether they were running the fixed
+        /// build. On a server the answer is not "whatever the player subscribed to" — tModLoader makes the
+        /// SERVER's mod list authoritative and switches (or downloads to) the client to match it, so a stale
+        /// server silently downgrades everyone connected to it. Since <c>CommandType.Chat</c> executes
+        /// server-side in multiplayer, the version this prints IS the one the session is running.
+        /// </summary>
+        private static void PrintVersion(CommandCaller caller)
+        {
+            Mod mod = ModContent.GetInstance<ManyMoreMobs>();
+            string where = Main.netMode switch
+            {
+                NetmodeID.SinglePlayer => "single-player",
+                NetmodeID.MultiplayerClient => "multiplayer (reported by the SERVER — this is the version in force)",
+                NetmodeID.Server => "server",
+                _ => "unknown",
+            };
+
+            caller.Reply($"[MMM] Many More Mobs v{mod?.Version} — {where}");
+            caller.Reply($"[MMM] tModLoader {ModLoader.versionedName}");
+
+            var config = ModContent.GetInstance<ManyMoreMobsConfig>();
+            if (config != null)
+            {
+                caller.Reply($"[MMM] mode={config.CapMode} total={config.EffectiveTotal} applied={MaxNpcCapRaise.AppliedCap} npc.Length={Main.npc.Length}");
+                caller.Reply($"[MMM] experimental MP fixes: {(config.ExperimentalMultiplayerFixes ? "ON" : "OFF")}");
             }
         }
 
