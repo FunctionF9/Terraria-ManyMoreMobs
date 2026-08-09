@@ -9,7 +9,11 @@ namespace ManyMoreMobs
     /// </summary>
     public static class CategoryCounts
     {
-        /// <summary>Count every active NPC, bucketed by category. Worm-boss segments count under Boss.</summary>
+        /// <summary>
+        /// Count every active NPC, bucketed by category. Every segment of a multi-part body counts under its
+        /// HEAD's category, via <see cref="SegmentChain"/> — so a full Eater of Worlds is 66 Boss, not 1 Boss
+        /// and 65 Enemy as it was before 0.7.6.6.
+        /// </summary>
         public static (int town, int boss, int critter, int enemy) Snapshot()
         {
             int town = 0, boss = 0, critter = 0, enemy = 0;

@@ -7,7 +7,7 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 - **PATCHED** — a patch targets this method. (Presence, not proof: verify the patch still matches.)
 - **SKIP** — deliberately excluded via an `AUDIT-SKIP` comment in the patcher.
 
-**231 NPC loops found · 118 in un-patched methods.**
+**243 NPC loops found · 118 in un-patched methods.**
 
 ## Terraria.Player
 
@@ -269,4 +269,66 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 | PATCHED | `FindArenaHitbox` | 818 | `for (int i = 0; i < 200; i++)` |
 | SKIP | `IsStandActive` | 1840 | `for (int i = 0; i < 200; i++)` |
 | PATCHED | `StartVictoryScene` | 471 | `for (int i = 0; i < 200; i++)` |
+
+## Terraria.GameContent.UI.BigProgressBar.BigProgressBarSystem
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
+| PATCHED | `TryFindingNPCToTrack` | 121 | `for (int i = 0; i < 200; i++)` |
+
+## Terraria.GameContent.UI.BigProgressBar.CommonBossBigProgressBar
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
+
+## Terraria.GameContent.UI.BigProgressBar.EaterOfWorldsProgressBar
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
+| PATCHED | `TryFindingAnotherEOWPiece` | 61 | `for (int i = 0; i < 200; i++)` |
+| PATCHED | `ValidateAndCollectNecessaryInfo` | 34 | `for (int i = 0; i < 200; i++)` |
+
+## Terraria.GameContent.UI.BigProgressBar.TwinsBigProgressBar
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
+| PATCHED | `ValidateAndCollectNecessaryInfo` | 26 | `for (int i = 0; i < 200; i++)` |
+
+## Terraria.GameContent.UI.BigProgressBar.MoonLordProgressBar
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
+| PATCHED | `TryFindingAnotherMoonLordPiece` | 87 | `for (int i = 0; i < 200; i++)` |
+| PATCHED | `ValidateAndCollectNecessaryInfo` | 45 | `for (int i = 0; i < 200; i++)` |
+
+## Terraria.GameContent.UI.BigProgressBar.GolemHeadProgressBar
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
+| PATCHED | `TryFindingAnotherGolemPiece` | 63 | `for (int i = 0; i < 200; i++)` |
+| PATCHED | `ValidateAndCollectNecessaryInfo` | 38 | `for (int i = 0; i < 200; i++)` |
+
+## Terraria.GameContent.UI.BigProgressBar.MartianSaucerBigProgressBar
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
+| PATCHED | `TryFindingAnotherMartianSaucerPiece` | 74 | `for (int i = 0; i < 200; i++)` |
+| PATCHED | `ValidateAndCollectNecessaryInfo` | 49 | `for (int i = 0; i < 200; i++)` |
+
+## Terraria.GameContent.UI.BigProgressBar.PirateShipBigProgressBar
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
+| PATCHED | `TryFindingAnotherPirateShipPiece` | 69 | `for (int i = 0; i < 200; i++)` |
+
+## Terraria.GameContent.UI.BigProgressBar.BrainOfCthuluBigProgressBar
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
+| PATCHED | `ValidateAndCollectNecessaryInfo` | 33 | `for (int i = 0; i < 200; i++)` |
+
+## Terraria.GameContent.UI.BigProgressBar.DeerclopsBigProgressBar
+
+| Status | Method | Line | Loop |
+|---|---|---|---|
 

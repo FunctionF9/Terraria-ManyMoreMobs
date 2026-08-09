@@ -8,10 +8,11 @@ namespace ManyMoreMobs
     /// Despawn-to-make-room. Frees a single slot for a guaranteed (Town / Boss / boss-segment) spawn by
     /// silently removing the lowest-priority active NPC.
     /// <para/>
-    /// Removal priority: <b>Critters first, then Enemies</b> — never Town, Boss, or worm segments (those
-    /// classify as Boss via <see cref="NpcCategorizer.Categorize"/>). Among equal priority the NPC FARTHEST
-    /// from any player is removed first, so off-screen mobs vanish before on-screen ones; if only on-screen
-    /// candidates exist one is still removed, because the high-priority spawn is guaranteed.
+    /// Removal priority, in order: <b>lone critters, lone enemies, then segments of multi-part bodies</b> as a
+    /// last resort. Town and Boss are never removed — and since 0.7.6.6 a worm-boss body counts as Boss whole,
+    /// so an Eater of Worlds is protected segment by segment rather than just at the head. Among equal priority
+    /// the NPC FARTHEST from any player goes first, so off-screen mobs vanish before on-screen ones; if only
+    /// on-screen candidates exist one is still removed, because the high-priority spawn is guaranteed.
     /// <para/>
     /// This is room-making, not a kill: no loot, no death animation. (Single-player / server authority only —
     /// the gate never calls this on a multiplayer client; the server syncs the removal.)
@@ -22,7 +23,7 @@ namespace ManyMoreMobs
         public static int TryFreeSlot()
         {
             int bestSlot = -1;
-            int bestPriority = int.MaxValue; // 0 = critter (evict first), 1 = enemy
+            int bestPriority = int.MaxValue; // see the tiers below; lower is evicted first
             float bestDistSq = -1f;
 
             int cap = EngineState.NpcCap;
@@ -33,15 +34,23 @@ namespace ManyMoreMobs
                     continue;
 
                 NpcCategory cat = NpcCategorizer.Categorize(n);
-                if (cat == NpcCategory.Town || cat == NpcCategory.Boss || NewNpcGate.IsBossChain(i))
-                    continue; // never evict town/boss, nor boss-chain segments (chained-worm bodies, e.g. an
-                              // Eater of Worlds body, classify as Enemy on their own but must be protected)
+                if (cat == NpcCategory.Town || cat == NpcCategory.Boss)
+                    continue; // never evict town or boss (worm-boss segments now categorize as Boss too)
 
                 if (NpcCategorizer.IsSpecialCritter(n))
                     continue; // rare critters (Prismatic Lacewing, Truffle Worm, gold critters) are one-off
                               // and often gate a boss summon — despawning one can cost a whole boss fight
 
-                int priority = cat == NpcCategory.Critter ? 0 : 1;
+                // Tiers: lone critters go first, then lone enemies, and only if the world holds nothing else
+                // do we touch a multi-part body. Segments are last because removing one link makes the worm's
+                // AI despawn everything beyond it, so freeing one slot can silently cost twenty — and because
+                // this runs FROM the guaranteed-spawn path, where a worm mid-assembly could otherwise be told
+                // to eat its own tail to fit its next segment.
+                //
+                // They are not exempt outright, though. A world saturated with worms would leave nothing at
+                // all evictable, and the guarantee that a Town NPC or a boss can always find room predates
+                // this and matters more. In that corner the worm loses; its AI tidies up the rest of itself.
+                int priority = (cat == NpcCategory.Critter ? 0 : 1) + (SegmentChain.IsMember(i) ? 2 : 0);
                 float distSq = DistanceSqToNearestPlayer(n);
 
                 // Prefer lower priority (critter), then farther from any player.

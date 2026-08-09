@@ -51,9 +51,22 @@ WORK="${TMPDIR:-/tmp}/mmm-audit"
 # This list has been WRONG TWICE, both times found by a player report rather than by the audit:
 #   0.7.6.2  Terraria.Item was missing      -> Copper Town Slime unobtainable (GetPickedUpByMonsters_Special)
 #   0.7.6.4  DD2Event was missing            -> Old One's Army triage had to be done by hand
+#   0.7.6.6  the whole BigProgressBar namespace was missing -> bosses above slot 200 drew no health bar
 # Widen this list before concluding that code is fine. An absent type reads exactly like a clean audit.
+# The lesson from the third one: UI namespaces count. A loop that only decides what to draw still goes
+# wrong the same way, and "the boss has no health bar" is a louder bug report than most gameplay ones.
 TYPES="Terraria.Player Terraria.Projectile Terraria.Main Terraria.NPC Terraria.Item
-       Terraria.GameContent.Events.DD2Event"
+       Terraria.GameContent.Events.DD2Event
+       Terraria.GameContent.UI.BigProgressBar.BigProgressBarSystem
+       Terraria.GameContent.UI.BigProgressBar.CommonBossBigProgressBar
+       Terraria.GameContent.UI.BigProgressBar.EaterOfWorldsProgressBar
+       Terraria.GameContent.UI.BigProgressBar.TwinsBigProgressBar
+       Terraria.GameContent.UI.BigProgressBar.MoonLordProgressBar
+       Terraria.GameContent.UI.BigProgressBar.GolemHeadProgressBar
+       Terraria.GameContent.UI.BigProgressBar.MartianSaucerBigProgressBar
+       Terraria.GameContent.UI.BigProgressBar.PirateShipBigProgressBar
+       Terraria.GameContent.UI.BigProgressBar.BrainOfCthuluBigProgressBar
+       Terraria.GameContent.UI.BigProgressBar.DeerclopsBigProgressBar"
 
 command -v ilspycmd >/dev/null 2>&1 || {
     echo "error: ilspycmd not found on PATH (dotnet tool install --global ilspycmd --version 8.0.0.7345)" >&2
@@ -171,12 +184,23 @@ LOOP_MANIPULATORS="$LOOP_MANIPULATORS|Patch_TownNPCCombat|Patch_UpdateLoop"
             }
         }
     ' "$PATCHER"
+    # ApplyBossHealthBarPatches: reflection over EVERY declared method of each listed type, so the unit of
+    # coverage is the type, not the method. Emitted as a `Type::*` wildcard that `covered()` understands.
+    sed -n '/string\[\] typeNames *=/,/};/p' "$PATCHER" \
+        | grep -oE '"[A-Za-z0-9_]+"' | tr -d '"' | sed 's/$/::*/'
 } | sort -u > "$WORK/patched.txt"
 
 # AUDIT-SKIP: Type.Method — reason. Type names may contain digits (DD2Event), which an [A-Za-z]+ class
 # silently rejects — the skip then reads as an un-triaged GAP forever.
 grep -oE 'AUDIT-SKIP: *[A-Za-z][A-Za-z0-9_]*\.[A-Za-z0-9_]+' "$PATCHER" 2>/dev/null \
     | sed -E 's/AUDIT-SKIP: *([A-Za-z][A-Za-z0-9_]*)\.([A-Za-z0-9_]+)/\1::\2/' | sort -u > "$WORK/skipped.txt" || : > "$WORK/skipped.txt"
+
+# A method is covered either by its own entry or by a `Type::*` wildcard (see ApplyBossHealthBarPatches,
+# which patches whole types by reflection rather than naming each method).
+covered() {
+    grep -qxF "$1" "$WORK/patched.txt" && return 0
+    grep -qxF "${1%%::*}::*" "$WORK/patched.txt"
+}
 
 # ── 4. Report ──
 {
@@ -196,7 +220,7 @@ grep -oE 'AUDIT-SKIP: *[A-Za-z][A-Za-z0-9_]*\.[A-Za-z0-9_]+' "$PATCHER" 2>/dev/n
     gaps=0
     while IFS=$'\t' read -r type method line code; do
         key="$type::$method"
-        grep -qxF "$key" "$WORK/patched.txt" && continue
+        covered "$key" && continue
         grep -qxF "$key" "$WORK/skipped.txt" && continue
         gaps=$((gaps + 1))
     done < "$WORK/loops.tsv"
@@ -212,7 +236,7 @@ grep -oE 'AUDIT-SKIP: *[A-Za-z][A-Za-z0-9_]*\.[A-Za-z0-9_]+' "$PATCHER" 2>/dev/n
         while IFS=$'\t' read -r type method line code; do
             key="$type::$method"
             if grep -qxF "$key" "$WORK/skipped.txt"; then status="SKIP"
-            elif grep -qxF "$key" "$WORK/patched.txt"; then status="PATCHED"
+            elif covered "$key"; then status="PATCHED"
             else status="**GAP**"; fi
             printf '| %s | `%s` | %s | `%s` |\n' "$status" "$method" "$line" "${code//|/\\|}"
         done

@@ -60,18 +60,29 @@ namespace ManyMoreMobs
                 sb.AppendLine($"effective caps  T/B/C/E = {caps.town}/{caps.boss}/{caps.critter}/{caps.enemy}");
             }
 
-            int[] low = new int[4], high = new int[4];
+            // Three buckets, not two. Main.npc is CAP+1 long — the extra entry is the dummy/failure slot that
+            // NewNPC returns when it can't place anything, and it sits ABOVE the cap, outside every widened
+            // loop. Counting it in with the rest is how this report used to disagree with /debugnpc counts
+            // (which stops at the cap): a total of 751 against the cap's 750 looked like an off-by-one in the
+            // report when it actually meant something had gone active in a slot the engine will never update.
+            int[] low = new int[4], high = new int[4], over = new int[4];
+            int cap = EngineState.NpcCap;
             for (int i = 0; i < Main.npc.Length; i++)
             {
                 NPC n = Main.npc[i];
                 if (n == null || !n.active)
                     continue;
                 int c = (int)NpcCategorizer.Categorize(n);
-                if (i < 200) low[c]++; else high[c]++;
+                if (i >= cap) over[c]++;
+                else if (i < 200) low[c]++;
+                else high[c]++;
             }
             sb.AppendLine($"active 0-199  T/B/C/E = {low[0]}/{low[1]}/{low[2]}/{low[3]}  (total {low.Sum()})");
             sb.AppendLine($"active 200+   T/B/C/E = {high[0]}/{high[1]}/{high[2]}/{high[3]}  (total {high.Sum()})");
-            sb.AppendLine($"active TOTAL  = {low.Sum() + high.Sum()}");
+            sb.AppendLine($"active TOTAL  = {low.Sum() + high.Sum()}  (within cap {cap})");
+            if (over.Sum() > 0)
+                sb.AppendLine($"dummy slot occupied (slot >= {cap}) = {over.Sum()}  T/B/C/E = {over[0]}/{over[1]}/{over[2]}/{over[3]}"
+                            + "  — expected: vanilla's blocked-spawn paths SetDefaults() the failure slot, which activates it. Inert (outside every loop). /debugnpc dumpall names it.");
 
             // List every NPC the mod counts as Town, so a surprising count (e.g. the world's Guide alive
             // off-screen, or a naturally-spawned Skeleton Merchant) can be identified at a glance.
@@ -191,6 +202,98 @@ namespace ManyMoreMobs
         /// why one player sees them and another doesn't. If a counter here reads 0 while the matching "high"
         /// column is non-zero, that's an unpatched loop, not bad luck. Cross-reference tools/audit-report.md.
         /// </summary>
+        /// <summary>
+        /// Reports the numbers the Old One's Army wave logic actually runs on, measured rather than reasoned
+        /// about.
+        /// <para/>
+        /// Written because a code-level argument about whether our wave-length multiplier breaks the tier-1
+        /// Dark Mage could not be settled either way: the reading said it must deadlock, the author had
+        /// completed the event repeatedly at the same settings. Both cannot be true, so print the values.
+        /// <para/>
+        /// <c>reqLive</c> is what <c>GetInvasionStatus</c> hands the game AFTER our hook, and is the number the
+        /// Dark Mage's <c>currentKillCount &gt; requiredKillCount * 0.5f</c> gate is measured against. If
+        /// <c>reqLive</c> equals <c>reqVanilla</c>, the multiplier is not reaching this path at all and the
+        /// theory is dead. If it is five times larger while <c>cur</c> is pinned at 139, it is confirmed.
+        /// </summary>
+        private static void AppendOldOnesArmyWaveMath(StringBuilder sb)
+        {
+            if (!Terraria.GameContent.Events.DD2Event.Ongoing)
+            {
+                sb.AppendLine("  (event not running — run this DURING an Old One's Army for the wave numbers)");
+                return;
+            }
+
+            int difficulty = Terraria.GameContent.Events.DD2Event.OngoingDifficulty;
+            int wave = NPC.waveNumber;
+            float waveKills = NPC.waveKills;
+
+            // GetInvasionStatus is private and hooked by us; calling it through reflection reports exactly what
+            // the game sees, our hook included.
+            int reqLive = -1, curLive = -1, waveLive = -1;
+            try
+            {
+                MethodInfo m = typeof(Terraria.GameContent.Events.DD2Event)
+                    .GetMethod("GetInvasionStatus", BindingFlags.NonPublic | BindingFlags.Static);
+                if (m != null)
+                {
+                    object[] args = { 0, 0, 0, false };
+                    m.Invoke(null, args);
+                    waveLive = (int)args[0];
+                    reqLive = (int)args[1];
+                    curLive = (int)args[2];
+                }
+            }
+            catch (Exception e)
+            {
+                sb.AppendLine($"  GetInvasionStatus probe failed: {e.GetType().Name}");
+            }
+
+            var events = ModContent.GetInstance<EventsConfig>();
+            float multiplier = events?.OldOnesArmyWaveLengthMultiplier ?? -1f;
+            int finalWave = difficulty == 1 ? 5 : 7;
+            int reqVanilla = VanillaRequiredKills(difficulty, wave);
+
+            sb.AppendLine($"  wave={wave} (final for this tier = {finalWave})  waveKills={waveKills}  "
+                        + $"spawnOnHold={Terraria.GameContent.Events.DD2Event.EnemySpawningIsOnHold}");
+            sb.AppendLine($"  GetInvasionStatus -> wave={waveLive} req={reqLive} cur={curLive}   "
+                        + $"(vanilla req for this wave = {reqVanilla}, WaveLengthMultiplier={multiplier})");
+
+            if (difficulty == 1 && wave == 5 && reqLive > 0)
+            {
+                // The one gate that decides whether the tier-1 Dark Mage may spawn.
+                float threshold = reqLive * 0.5f;
+                bool passes = curLive > threshold;
+                bool alreadyOut = NPC.AnyNPCs(NPCID.DD2DarkMageT1);
+                sb.AppendLine($"  DARK MAGE GATE: cur({curLive}) > req({reqLive})*0.5 = {threshold}  -> {passes}"
+                            + $"   alreadyAlive={alreadyOut}");
+                if (!passes)
+                    sb.AppendLine($"    cur cannot exceed 139 on this wave until the Dark Mage dies, so a "
+                                + $"threshold above 139 can never be met.");
+            }
+
+            int mages = 0, mageSlotLow = -1, mageSlotHigh = -1;
+            for (int i = 0; i < EngineState.NpcCap; i++)
+            {
+                NPC n = Main.npc[i];
+                if (n == null || !n.active)
+                    continue;
+                if (n.type == NPCID.DD2DarkMageT1 || n.type == NPCID.DD2DarkMageT3)
+                {
+                    mages++;
+                    if (i < 200) mageSlotLow = i; else mageSlotHigh = i;
+                }
+            }
+            sb.AppendLine($"  Dark Mages alive: {mages} (lowSlot={mageSlotLow} highSlot={mageSlotHigh})");
+        }
+
+        /// <summary>Vanilla's un-multiplied required kills, so the report can show what our hook changed.</summary>
+        private static int VanillaRequiredKills(int difficulty, int wave) => difficulty switch
+        {
+            1 => wave switch { 1 => 60, 2 => 80, 3 => 100, 4 => 120, 5 => 140, _ => 10 },
+            2 => wave switch { 1 => 60, 2 => 80, 3 => 100, 4 => 120, 5 => 140, 6 => 180, 7 => 220, _ => 10 },
+            _ => wave switch { 1 => 60, 2 => 80, 3 => 100, 4 => 120, 5 => 140, 6 => 180, 7 => 100, _ => 10 },
+        };
+
         public static string BuildEventReport()
         {
             var sb = new StringBuilder();
@@ -211,6 +314,7 @@ namespace ManyMoreMobs
             sb.AppendLine($"PILLARS apocalypse={NPC.LunarApocalypseIsUp} shieldMax={NPC.ShieldStrengthTowerMax}  solar={NPC.ShieldStrengthTowerSolar} vortex={NPC.ShieldStrengthTowerVortex} nebula={NPC.ShieldStrengthTowerNebula} stardust={NPC.ShieldStrengthTowerStardust}");
 
             sb.AppendLine($"OLD ONE'S ARMY ongoing={Terraria.GameContent.Events.DD2Event.Ongoing} difficulty={Terraria.GameContent.Events.DD2Event.OngoingDifficulty}");
+            AppendOldOnesArmyWaveMath(sb);
 
             // Slot split for the NPC groups these events are counted from.
             int totLow = 0, totHigh = 0, invLow = 0, invHigh = 0, moonLow = 0, moonHigh = 0, pillarLow = 0, pillarHigh = 0;
@@ -395,8 +499,172 @@ namespace ManyMoreMobs
             var sb = new StringBuilder();
             sb.AppendLine($"slot {index}: active={n.active} type={n.type} netID={n.netID} '{SafeName(n)}'");
             sb.AppendLine($"  whoAmI={n.whoAmI} realLife={n.realLife} boss={n.boss} townNPC={n.townNPC} category={(n.active ? NpcCategorizer.Categorize(n).ToString() : "(inactive)")}");
+            // Chain membership is what decides a worm segment's category, and it is invisible from the NPC
+            // itself — an Eater of Worlds body has no realLife and no boss flag, so this line is the only way
+            // to see why it counts as Boss.
+            sb.AppendLine($"  aiStyle={n.aiStyle} chainMember={SegmentChain.IsMember(index)}"
+                        + (SegmentChain.IsMember(index) ? $" chainCategory={SegmentChain.CategoryOf(index)}" : ""));
             sb.AppendLine($"  _globals.Length={GlobalsLength(n)}  life={n.life}/{n.lifeMax} damage={n.damage} dontTakeDamage={n.dontTakeDamage}");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Full census: one line per active NPC, plus a per-type histogram and a machine-checkable anomaly list.
+        /// <para/>
+        /// The aggregate reports answer "how many of each category" — this one answers "which NPC, in which
+        /// slot, counted under which cap, and <b>why</b>". That last column is the point. Category is decided by
+        /// three different routes (chain tag → <c>realLife</c> head → own flags) and the routes disagree in
+        /// exactly the cases that produce bugs: an Eater of Worlds body has no boss flag and no <c>realLife</c>,
+        /// so if its tag is missing it silently reverts to Enemy and nothing in the aggregate counts looks wrong
+        /// — the boss budget is simply short and the enemy budget is quietly overspent. Printing the route makes
+        /// that visible in one line instead of one <c>/debugnpc slot</c> call per segment.
+        /// <para/>
+        /// Written as TSV rather than prose: it is meant to be read back out of the state log and diffed.
+        /// </summary>
+        public static string BuildFullDumpReport(out int anomalies)
+        {
+            anomalies = 0;
+            var sb = new StringBuilder();
+            var problems = new List<string>();
+            var notes = new List<string>();
+
+            int cap = EngineState.NpcCap;
+            int len = Main.npc.Length;
+            var config = ModContent.GetInstance<ManyMoreMobsConfig>();
+            var caps = config?.GetEffectiveCaps() ?? (0, 0, 0, 0);
+
+            int[] byCat = new int[4];
+            int lowUsed = 0, highUsed = 0, overUsed = 0;
+            var typeHist = new Dictionary<(int type, NpcCategory cat), int>();
+            var rows = new List<string>();
+
+            for (int i = 0; i < len; i++)
+            {
+                NPC n = Main.npc[i];
+                if (n == null || !n.active)
+                    continue;
+
+                bool over = i >= cap;
+                string zone = over ? "X" : i < 200 ? "L" : "H";
+                if (over) overUsed++;
+                else if (i < 200) lowUsed++;
+                else highUsed++;
+
+                NpcCategory cat = NpcCategorizer.Categorize(n);
+                if (!over)
+                    byCat[(int)cat]++;
+
+                var key = (n.type, cat);
+                typeHist[key] = typeHist.TryGetValue(key, out int c) ? c + 1 : 1;
+
+                string flags = string.Concat(
+                    n.boss ? "b" : "-",
+                    n.townNPC ? "t" : "-",
+                    n.CountsAsACritter ? "c" : "-",
+                    n.friendly ? "f" : "-",
+                    n.dontTakeDamage ? "i" : "-");
+
+                rows.Add(string.Join("\t",
+                    i, zone, n.type, n.netID, cat, CategoryRoute(n),
+                    SegmentChain.IsMember(i) ? SegmentChain.CategoryOf(i).ToString() : "-",
+                    n.life, n.lifeMax, n.realLife, n.aiStyle, flags,
+                    (int)(n.Center.X / 16f), (int)(n.Center.Y / 16f), n.timeLeft,
+                    n.ModNPC?.Mod?.Name ?? "Terraria", SafeName(n)));
+
+                // Anomalies. Each of these is a state that should be impossible, phrased so the line itself
+                // says which rule was broken.
+                //
+                // The dummy slot is NOT one of them — see the notes section below. It was, until the cause
+                // turned out to be plain vanilla behaviour; leaving it as an anomaly would mean re-triaging
+                // the same non-bug on every dump, which is how a report stops being read.
+                if (over)
+                    notes.Add($"DUMMY_SLOT\tslot={i}\ttype={n.type}\tnetID={n.netID}\t'{SafeName(n)}'\tlife={n.life}\ttimeLeft={n.timeLeft}");
+                if (n.whoAmI != i)
+                    problems.Add($"WHOAMI_MISMATCH\tslot={i}\twhoAmI={n.whoAmI}\ttype={n.type}\t'{SafeName(n)}'");
+                if (cat == NpcCategory.Town && !over && i >= 200)
+                    problems.Add($"TOWN_HIGH\tslot={i}\ttype={n.type}\t'{SafeName(n)}'\t(SlotRezoner should have moved this below 200)");
+            }
+
+            anomalies = problems.Count;
+
+            int lowFree = 0, highFree = 0;
+            for (int i = 0; i < Math.Min(len, cap); i++)
+                if (Main.npc[i] != null && !Main.npc[i].active) { if (i < 200) lowFree++; else highFree++; }
+
+            sb.AppendLine($"cap={cap}\tnpcLength={len}\tnetMode={Main.netMode}\tmode={config?.CapMode}\tcapsTBCE={caps.Item1}/{caps.Item2}/{caps.Item3}/{caps.Item4}");
+            sb.AppendLine($"activeTBCE={byCat[0]}/{byCat[1]}/{byCat[2]}/{byCat[3]}\ttotal={byCat.Sum()}\tzones L={lowUsed}(free {lowFree}) H={highUsed}(free {highFree}) overCap={overUsed}");
+
+            // Which categories are over their configured ceiling, and why that is not automatically a bug:
+            // segments of a multi-part body bypass the ceiling by design, so a worm boss can legitimately
+            // carry its whole length past BossCap. The line reports it either way; the chain column above is
+            // what tells the two apart.
+            AppendCapLine(sb, "town", byCat[0], caps.Item1);
+            AppendCapLine(sb, "boss", byCat[1], caps.Item2);
+            AppendCapLine(sb, "critter", byCat[2], caps.Item3);
+            AppendCapLine(sb, "enemy", byCat[3], caps.Item4);
+
+            sb.AppendLine($"--- byType ({typeHist.Count} distinct) ---");
+            foreach (var kv in typeHist.OrderByDescending(k => k.Value).ThenBy(k => k.Key.type))
+                sb.AppendLine($"{kv.Value}\ttype={kv.Key.type}\t{kv.Key.cat}\t{Lang.GetNPCNameValue(kv.Key.type)}");
+
+            if (notes.Count > 0)
+            {
+                // Traced 2026-08-09 from a census that reported it as an anomaly. NPC.SpawnNPC's natural-spawn
+                // branches write to Main.npc[newNPC] WITHOUT checking whether the spawn succeeded — e.g. the
+                // corruption branch rolls `Main.npc[newNPC].SetDefaults(-11/-12)` on the Eater of Souls it just
+                // asked for. When the array is full, newNPC is the failure index, so that lands on the dummy
+                // slot; and SetDefaults ends with `active = Type != 0`, which brings the dummy to life.
+                // Vanilla does exactly this at Main.npc[200] — the difference is only which index the dummy
+                // sits at. It stays inert either way: every loop stops one short of it, so it never updates,
+                // draws, takes damage, or counts toward a cap. Listed rather than hidden because the slot is
+                // also where a genuinely misbehaving mod would show up.
+                sb.AppendLine($"--- notes ({notes.Count}) — expected, not faults ---");
+                foreach (string n in notes)
+                    sb.AppendLine(n + "\t(vanilla: a blocked NPC.SpawnNPC still SetDefaults() the failure slot, which activates it; inert, outside every loop)");
+            }
+
+            sb.AppendLine($"--- anomalies ({problems.Count}) ---");
+            foreach (string p in problems.Take(50))
+                sb.AppendLine(p);
+            if (problems.Count > 50)
+                sb.AppendLine($"... {problems.Count - 50} more");
+
+            sb.AppendLine($"--- slots ({rows.Count}) ---");
+            sb.AppendLine("slot\tzone\ttype\tnetID\tcat\tvia\tchain\tlife\tlifeMax\trealLife\taiStyle\tflags(b/t/c/f/i)\ttileX\ttileY\ttimeLeft\tmod\tname");
+            foreach (string r in rows)
+                sb.AppendLine(r);
+
+            return sb.ToString();
+        }
+
+        private static void AppendCapLine(StringBuilder sb, string name, int count, int cap)
+            => sb.AppendLine($"cap.{name}\t{count}/{cap}{(count > cap ? "\tOVER (expected only when multi-part bodies bypassed the ceiling)" : "")}");
+
+        /// <summary>
+        /// Which of <see cref="NpcCategorizer"/>'s three routes decided this NPC's category — the chain tag,
+        /// the <c>realLife</c> head, or its own flags (and which flag).
+        /// </summary>
+        private static string CategoryRoute(NPC n)
+        {
+            int slot = n.whoAmI;
+            if (SegmentChain.IsMember(slot))
+                return "chain";
+
+            int head = n.realLife;
+            if (head >= 0 && head != slot && head < Main.npc.Length)
+            {
+                NPC h = Main.npc[head];
+                if (h != null && h.active && h.whoAmI != slot)
+                    return $"realLife:{head}";
+            }
+
+            if (NpcCategorizer.IsRescueNpc(n.type)) return "flag:rescue";
+            if (n.isLikeATownNPC) return "flag:townlike";
+            if (n.boss) return "flag:boss";
+            if (NpcCategorizer.IsEventMiniboss(n.type)) return "flag:miniboss";
+            if ((uint)n.type < (uint)NPCID.Sets.ShouldBeCountedAsBoss.Length && NPCID.Sets.ShouldBeCountedAsBoss[n.type]) return "flag:countedAsBoss";
+            if (n.CountsAsACritter) return "flag:critter";
+            return "flag:enemy";
         }
 
         private static void CheckArray(StringBuilder sb, ref int anomalies, string name, int length, int cap)

@@ -104,7 +104,6 @@ The four caps decide how that budget gets split:
 [*]Config sliders snap and jank with wide ranges, a limitation of tModLoader's default config screen. A nicer custom config UI is a dream for later.
 [*]Expanded mode only: if you push Enemy/Critter caps past what the Expanded slots can hold (Max Total - 200), the overflow can block Town NPC / Boss spawns - despawn-to-make-room doesn't tell low from high slots in Expanded yet. Keep the four caps within Max Total NPCs (the defaults do). Fix coming.
 [*]Enemies in the expanded slots don't yet have custom map icons / bestiary polish.
-[*]The Wyvern will mostly spawn at reduced length in a fully packed world.
 [*]On max spawn rate, noticeable churn/slowdown during Lunar Pillars event due to amount of projectiles from enemies.
 [/list]
 This list will grow and shrink as playtesters report issues - thank you for the feedback!

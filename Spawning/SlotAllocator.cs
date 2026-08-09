@@ -109,14 +109,14 @@ namespace ManyMoreMobs
         private static int ReplaceableAscending(int cap)
         {
             for (int i = 0; i < cap; i++)
-                if (Main.npc[i].CanBeReplacedByOtherNPCs && !NewNpcGate.IsBossChain(i)) return i;
+                if (Main.npc[i].CanBeReplacedByOtherNPCs && !SegmentChain.IsMember(i)) return i;
             return -1;
         }
 
         private static int ReplaceableDescending(int cap)
         {
             for (int i = cap - 1; i >= 0; i--)
-                if (Main.npc[i].CanBeReplacedByOtherNPCs && !NewNpcGate.IsBossChain(i)) return i;
+                if (Main.npc[i].CanBeReplacedByOtherNPCs && !SegmentChain.IsMember(i)) return i;
             return -1;
         }
     }

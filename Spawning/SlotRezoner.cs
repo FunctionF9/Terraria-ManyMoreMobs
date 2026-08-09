@@ -111,9 +111,10 @@ namespace ManyMoreMobs
             if (n.realLife >= 0)
                 return false;
 
-            // Never touch a boss-chain member. Nothing here should be one (they don't classify as Town), but
-            // the eviction and Pass-2 replacement guards make the same check for the same reason.
-            if (NewNpcGate.IsBossChain(slot))
+            // Never re-index part of a multi-part body: segments address their neighbours by slot through
+            // ai[0]/ai[1], so moving one severs the worm. Nothing reaching here should be a member (they don't
+            // classify as Town), but eviction and Pass-2 replacement guard the same way for the same reason.
+            if (SegmentChain.IsMember(slot))
                 return false;
 
             // An open chat/shop is addressed by NPC index, and in multiplayer the CLIENT owns its copy of
@@ -177,7 +178,7 @@ namespace ManyMoreMobs
             moving.whoAmI = to;
             moving.netUpdate = true;
 
-            NewNpcGate.MoveBossChainTag(from, to);
+            SegmentChain.Move(from, to);
 
             if (server)
                 NetMessage.SendData(MessageID.SyncNPC, -1, -1, null, to);

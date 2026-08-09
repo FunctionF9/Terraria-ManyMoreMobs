@@ -12,7 +12,7 @@ namespace ManyMoreMobs
     {
         public override string Command => "debugnpc";
         public override string Usage =>
-            "/debugnpc <version|counts|dump|validate|spawninfo|event|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
+            "/debugnpc <version|counts|dump|dumpall|validate|spawninfo|event|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
         public override string Description => "Many More Mobs debug: inspect counts/state/spawn rate, validate arrays, test spawning. Full reports go to ManyMoreMobs-state.log (on the SERVER's machine in multiplayer; the summary still comes back to you in chat).";
 
         public override CommandType Type => CommandType.Chat;
@@ -38,6 +38,26 @@ namespace ManyMoreMobs
                     foreach (string line in report.TrimEnd().Split('\n'))
                         caller.Reply(line.TrimEnd());
                     caller.Reply("[MMM] full dump written to ManyMoreMobs-state.log");
+                    break;
+                }
+
+                case "dumpall":
+                case "dump_all":
+                {
+                    // Deliberately NOT echoed to chat: this is one line per active NPC, up to the full cap.
+                    // The summary block is what a human needs in the moment; the census is for reading back
+                    // out of the log afterwards.
+                    string report = EngineDiagnostics.BuildFullDumpReport(out int problems);
+                    MmmLog.Dump("/debugnpc dumpall", report);
+                    foreach (string line in report.Split('\n'))
+                    {
+                        if (line.StartsWith("--- byType", StringComparison.Ordinal))
+                            break;
+                        caller.Reply(line.TrimEnd().Replace('\t', ' '));
+                    }
+                    caller.Reply(problems == 0
+                        ? "[MMM] census written to ManyMoreMobs-state.log — no anomalies."
+                        : $"[MMM] census written to ManyMoreMobs-state.log — {problems} ANOMALIES listed there.");
                     break;
                 }
 

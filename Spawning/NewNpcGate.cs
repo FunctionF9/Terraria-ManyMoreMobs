@@ -55,6 +55,11 @@ namespace ManyMoreMobs
             MonoModHooks.Add(target, new HookNewNPC(NewNPC_Hook));
         }
 
+        // Chain tags describe one world's slots, so they must not survive a world change — see SegmentChain.Reset.
+        public override void OnWorldLoad() => SegmentChain.Reset();
+
+        public override void OnWorldUnload() => SegmentChain.Reset();
+
         private static int NewNPC_Hook(OrigNewNPC orig, IEntitySource source, int x, int y, int type, int start,
             float ai0, float ai1, float ai2, float ai3, int target)
         {
@@ -65,7 +70,7 @@ namespace ManyMoreMobs
             try
             {
                 bool authority = Main.netMode != NetmodeID.MultiplayerClient;
-                EnsureBossChainSize();
+                SegmentChain.EnsureSize();
 
                 // Eternia Crystal / DD2 Lane Portals: structural Old One's Army objectives. Always spawn them
                 // and place them in the LOW (0-199) zone — vanilla draw, the right-click skip-wait interaction,
@@ -73,7 +78,7 @@ namespace ManyMoreMobs
                 if (NpcCategorizer.IsStructuralLowZone(type))
                 {
                     SlotAllocator.SetCategoryHint(NpcCategory.Boss);
-                    return Mark(SpawnGuaranteed(orig, source, x, y, type, start, ai0, ai1, ai2, ai3, target, NpcCategory.Boss), bossChain: true);
+                    return Mark(SpawnGuaranteed(orig, source, x, y, type, start, ai0, ai1, ai2, ai3, target, NpcCategory.Boss), chained: true, NpcCategory.Boss);
                 }
 
                 // Hard per-type active caps (performance). At Frost Moon wave 20 vanilla REMOVES the spawn cap
@@ -87,29 +92,47 @@ namespace ManyMoreMobs
 
                 // Source-aware category (detects boss segments/adds via their boss parent).
                 NpcCategory cat = NpcCategorizer.CategorizeSpawn(type, source, out bool bossParented);
+                bool chained = bossParented;
 
-                // Boss-chain propagation. Chained worm bosses (Eater of Worlds) parent each segment to the
-                // PREVIOUS segment — not the boss head — and don't set realLife (they can split), and their
-                // body/tail types aren't boss-flagged. So only the head + first segment look boss-parented and
-                // the rest get blocked, truncating the worm. If a spawn's parent is itself an active member of a
-                // boss chain (we tag every guaranteed boss spawn below), treat this spawn as part of the boss too.
-                if (!bossParented && source is EntitySource_Parent ep && ep.Entity is NPC pn
-                    && pn.active && (uint)pn.whoAmI < (uint)_bossChain.Length && _bossChain[pn.whoAmI])
+                // Multi-part bodies. A worm is a head plus dozens of segments, each its own NPC built one at a
+                // time by the head's AI, and a segment refused by a cap produces a visibly chopped worm (or a
+                // torso that immediately kills itself, since the AI despawns any segment whose neighbour is
+                // gone). So every segment inherits its head's category, bypasses the ceiling, and is guaranteed
+                // a slot. Two ways in:
+                //
+                //   INHERIT — the parent is already a tagged chain member. This carries the chain down bodies
+                //   that parent each segment to the PREVIOUS segment rather than to the head (Eater of Worlds
+                //   does this, and sets no realLife because it can split), where otherwise only the first
+                //   segment would be recognised and the rest truncated.
+                //
+                //   SEED — the parent is an unchained head running the vanilla worm AI. This is what covers the
+                //   ordinary worms and Wyverns, whose heads are plain Enemies: nothing about an Enemy parent
+                //   marks its children as special, so before this they were capped like unrelated trash mobs.
+                //   Boss-bodied worms (the Destroyer) already arrive via bossParented and never reach here.
+                if (source is EntitySource_Parent parentSource && parentSource.Entity is NPC parentNpc && parentNpc.active)
                 {
-                    bossParented = true;
-                    cat = NpcCategory.Boss;
+                    if (SegmentChain.IsMember(parentNpc.whoAmI))
+                    {
+                        chained = true;
+                        cat = SegmentChain.CategoryOf(parentNpc.whoAmI);
+                    }
+                    else if (parentNpc.aiStyle == NPCAIStyleID.Worm)
+                    {
+                        chained = true;
+                        cat = NpcCategorizer.Categorize(parentNpc);
+                    }
                 }
 
-                bool isBoss = bossParented || cat == NpcCategory.Boss;
+                bool isBoss = cat == NpcCategory.Boss;
                 bool isTown = cat == NpcCategory.Town;
-                // Town and Boss (and any boss-parented segment) are GUARANTEED a slot — never blocked by a full
-                // array; we despawn a low-priority NPC to fit them. Enemy/Critter are not guaranteed.
-                bool guaranteed = isTown || isBoss;
+                // Town, Boss and any segment of a multi-part body are GUARANTEED a slot — never blocked by a
+                // full array; we despawn a low-priority NPC to fit them. Lone Enemy/Critter are not guaranteed.
+                bool guaranteed = isTown || isBoss || chained;
 
-                // Ceiling enforcement (a hard block). Boss-parented segments are never blocked (a worm must
-                // spawn whole), and neither are rare critters — a permanently-full CritterCap would otherwise
-                // make the Empress of Light and Duke Fishron unsummonable. See IsBlockedByCeiling.
-                if (authority && !bossParented && !NpcCategorizer.IsSpecialCritter(type))
+                // Ceiling enforcement (a hard block). Segments are never blocked (a worm must spawn whole), and
+                // neither are rare critters — a permanently-full CritterCap would otherwise make the Empress of
+                // Light and Duke Fishron unsummonable. See IsBlockedByCeiling.
+                if (authority && !chained && !NpcCategorizer.IsSpecialCritter(type))
                 {
                     var config = ModContent.GetInstance<ManyMoreMobsConfig>();
                     if (config != null && IsBlockedByCeiling(config, cat, isBoss))
@@ -124,9 +147,10 @@ namespace ManyMoreMobs
                     ? SpawnGuaranteed(orig, source, x, y, type, start, ai0, ai1, ai2, ai3, target, cat)
                     : orig(source, x, y, type, start, ai0, ai1, ai2, ai3, target);
 
-                // Tag the slot so the NEXT link in a worm chain (parented to this segment) is recognised as
-                // boss too. Always write (true OR false) so a reused slot never inherits a stale tag.
-                return Mark(slot, bossChain: isBoss);
+                // Tag the slot so the NEXT link in the chain (parented to this segment) is recognised. Bosses are
+                // tagged even when standing alone, so their adds inherit correctly. Always write (true OR false)
+                // so a reused slot never inherits a stale tag.
+                return Mark(slot, chained || isBoss, cat);
             }
             catch (Exception e)
             {
@@ -136,75 +160,71 @@ namespace ManyMoreMobs
             return orig(source, x, y, type, start, ai0, ai1, ai2, ai3, target);
         }
 
-        // Per-slot "is this NPC part of an active boss chain" tag, so chained-worm segments (which parent to the
-        // previous segment, not the boss head) keep being recognised as boss down the whole chain. Sized to the
-        // NPC array; every gate spawn rewrites its slot's tag so a reused slot can't carry a stale value.
-        private static bool[] _bossChain = System.Array.Empty<bool>();
-
-        private static void EnsureBossChainSize()
+        /// <summary>Record the spawned slot's chain membership (see <see cref="SegmentChain"/>) and pass it through.</summary>
+        private static int Mark(int slot, bool chained, NpcCategory category)
         {
-            if (_bossChain.Length < Main.npc.Length)
-                System.Array.Resize(ref _bossChain, Main.npc.Length);
-        }
-
-        private static int Mark(int slot, bool bossChain)
-        {
-            if ((uint)slot < (uint)EngineState.NpcCap && slot < _bossChain.Length)
-                _bossChain[slot] = bossChain;
+            if ((uint)slot < (uint)EngineState.NpcCap)
+                SegmentChain.Mark(slot, chained, category);
             return slot;
-        }
-
-        /// <summary>
-        /// True if this slot holds a boss-chain member (a boss, or a chained-worm segment like an Eater of
-        /// Worlds body — which classifies as Enemy on its own but must never be evicted, or the despawn-to-
-        /// make-room system would cannibalise the very worm it's trying to fit).
-        /// </summary>
-        internal static bool IsBossChain(int slot) =>
-            (uint)slot < (uint)_bossChain.Length && _bossChain[slot];
-
-        /// <summary>
-        /// Carries a slot's boss-chain tag across a relocation (see <see cref="SlotRezoner"/>) and clears the
-        /// vacated slot. The rezoner never moves a chain member, so the tag being carried is currently always
-        /// false — but the destination may still hold a stale tag from a previous occupant, and clearing that
-        /// is what actually matters here.
-        /// </summary>
-        internal static void MoveBossChainTag(int from, int to)
-        {
-            EnsureBossChainSize();
-
-            bool tag = (uint)from < (uint)_bossChain.Length && _bossChain[from];
-            if ((uint)to < (uint)_bossChain.Length)
-                _bossChain[to] = tag;
-            if ((uint)from < (uint)_bossChain.Length)
-                _bossChain[from] = false;
         }
 
         /// <summary>
         /// A spawn that must always succeed (Town / Boss / boss segment).
         /// <para/>
-        /// <b>Expanded</b> — the reservation already guarantees zoned space, so honour the caller's preferred
-        /// placement, with a whole-array fallback if that range happens to be full.
+        /// Try the caller's preferred placement first, then the whole array, and only if BOTH come back empty
+        /// evict one low-priority NPC and try once more. Eviction is genuinely last-resort: it runs only when
+        /// every slot in the array is occupied.
         /// <para/>
-        /// <b>Default</b> — the array is shared and can be completely full. Vanilla's <c>GetAvailableNPCSlot</c>,
-        /// finding no INACTIVE slot, falls back to REPLACING a "replaceable" NPC — and a chained worm's body is
-        /// replaceable, so the search hands back the spawner segment's own slot and every segment overwrites it
-        /// (head + tail only). To avoid that entirely we guarantee a genuinely free slot first: if the array is
-        /// full, evict one low-priority NPC, then spawn with <c>start = 0</c> so the inactive-slot search (never
-        /// the replace fallback) places it. Segment chains are ai[]-indexed, so the resulting placement is fine.
+        /// <b>Why the eviction step is not optional in Expanded mode.</b> It used to be skipped there, on the
+        /// reasoning that the reservation made it unnecessary — which quietly made the "worms always spawn
+        /// whole" guarantee a no-op for everyone on the default settings, since Expanded IS the default.
+        /// The reservation does guarantee each category its own zoned space — but a multi-part body bypasses
+        /// its category ceiling on purpose, so a worm can legitimately need far more than the boss budget
+        /// holds: three Destroyers want 246 slots against a BossCap of 160. The overflow spills into whatever
+        /// is free, and once the array is genuinely full the retry cannot help, because
+        /// <see cref="SlotAllocator"/> ignores <c>start</c> and runs the same four-pass search either way. So
+        /// the second attempt was the first attempt again, and the segment was simply refused — a chopped worm,
+        /// exactly the failure eviction exists to prevent.
+        /// <para/>
+        /// Getting a genuinely free slot also matters for its own sake. Vanilla's <c>GetAvailableNPCSlot</c>,
+        /// finding no INACTIVE slot, falls back to REPLACING a "replaceable" NPC — and that path could hand
+        /// back a slot inside the very worm being assembled. (Our allocator's Pass 2 already refuses chain
+        /// members for this reason, and <c>CanBeReplacedByOtherNPCs</c> is false for almost everything, which
+        /// is precisely why a full array is a hard stop rather than a soft one.)
         /// </summary>
         private static int SpawnGuaranteed(OrigNewNPC orig, IEntitySource source, int x, int y, int type, int start,
             float ai0, float ai1, float ai2, float ai3, int target, NpcCategory cat)
         {
+            int cap = EngineState.NpcCap;
+
             if (ModContent.GetInstance<ManyMoreMobsConfig>()?.CapMode != NpcCapMode.Default)
             {
                 int s = orig(source, x, y, type, start, ai0, ai1, ai2, ai3, target);
-                if (s >= EngineState.NpcCap)
-                    s = orig(source, x, y, type, 0, ai0, ai1, ai2, ai3, target);
-                return s;
+                if (s < cap)
+                    return s;
+
+                // The hint is consumed by each allocation, so re-arm it before retrying or the fallback
+                // searches from the wrong end of the array.
+                SlotAllocator.SetCategoryHint(cat);
+                s = orig(source, x, y, type, 0, ai0, ai1, ai2, ai3, target);
+                if (s < cap)
+                    return s;
+            }
+            else if (HasFreeSlot())
+            {
+                SlotAllocator.SetCategoryHint(cat);
+                return orig(source, x, y, type, 0, ai0, ai1, ai2, ai3, target);
             }
 
-            if (!HasFreeSlot())
+            // Array full. Only the spawning authority may evict: EntityEvictor syncs the removal from the
+            // server, so a client evicting on its own would drop an NPC the server still believes is alive
+            // (and would then disagree with it about who owns the slot). A client just lets the attempt fail
+            // and takes the server's word for it on the next sync.
+            if (Main.netMode != NetmodeID.MultiplayerClient)
                 EntityEvictor.TryFreeSlot();
+
+            // Attempted even if nothing was evictable: the allocator's Pass 2 can still replace a low-priority
+            // NPC, and if that fails too it returns the failure slot on its own, exactly as vanilla would.
             SlotAllocator.SetCategoryHint(cat);
             return orig(source, x, y, type, 0, ai0, ai1, ai2, ai3, target);
         }

@@ -14,15 +14,30 @@ namespace ManyMoreMobs
     /// <item><c>npc.CountsAsACritter</c> → Critter</item>
     /// <item>everything else → Enemy</item>
     /// </list>
-    /// Worm-boss segments (The Destroyer etc.) point <see cref="NPC.realLife"/> at the head segment, so
-    /// they inherit the head's category and a full worm is counted entirely as Boss instead of leaking
-    /// into the Enemy budget.
+    /// Multi-part bodies inherit their head's category by two routes, because one of them is not enough:
+    /// <list type="bullet">
+    /// <item><see cref="SegmentChain"/> — a tag the spawn gate writes as each segment is created. This is the
+    /// only route that works for the Eater of Worlds, which leaves <see cref="NPC.realLife"/> unset on its
+    /// segments so it can split, and whose body/tail types carry no boss flag of any kind.</item>
+    /// <item><see cref="NPC.realLife"/> — most worms (The Destroyer and friends) point it at the head, which
+    /// still covers anything that reaches us without having passed the gate.</item>
+    /// </list>
+    /// Either way a full worm counts entirely under its head's category instead of leaking into the Enemy
+    /// budget. Before 0.7.6.6 only the second route existed, and a 66-slot Eater of Worlds counted as one Boss
+    /// plus sixty-five Enemies.
     /// </summary>
     public static class NpcCategorizer
     {
         /// <summary>Categorize a live NPC instance (used when counting active NPCs).</summary>
         public static NpcCategory Categorize(NPC npc)
         {
+            // The chain tag first: it is the only thing that knows a body belongs to a head when the engine
+            // itself doesn't say so. The Eater of Worlds is the case that matters — it deliberately leaves
+            // realLife unset on its segments so it can split, and its body/tail types carry no boss flag, so
+            // by realLife and flags alone a 66-slot boss counted as 1 Boss and 65 Enemies. See SegmentChain.
+            if (SegmentChain.IsMember(npc.whoAmI))
+                return SegmentChain.CategoryOf(npc.whoAmI);
+
             // Multi-segment bodies share their health with a "real life" segment (the head). Inherit from
             // it so every segment lands in the head's bucket. Single level of indirection only.
             int head = npc.realLife;

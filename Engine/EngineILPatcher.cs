@@ -245,6 +245,10 @@ namespace ManyMoreMobs
                 typeof(Main).GetMethod("DrawInterface_14_EntityHealthBars", BindingFlags.NonPublic | BindingFlags.Instance),
                 Patch_HealthBars);
 
+            // BOSS health bar — a separate system from the enemy bars above, and a whole namespace the loop
+            // audit never scanned (it reads Player/Projectile/Main/NPC/Item/DD2Event only).
+            ApplyBossHealthBarPatches(mod);
+
             // ── Town NPC <-> enemy combat: let town NPCs/critters interact with enemies in the bonus zone. ──
             // GetHurtByOtherNPCs is the single chokepoint for town NPCs AND critters taking damage from
             // hostile NPCs (one clean npc loop). AI_007_TownEntities holds the town NPC's enemy-detect
@@ -981,6 +985,118 @@ namespace ManyMoreMobs
             }
 
             Apply(mod, $"{type.Name}.{name}", method, Patch_AllNpcLoopBounds200);
+        }
+
+        /// <summary>
+        /// The boss health bar (<c>Terraria.GameContent.UI.BigProgressBar</c>) is blind to slots ≥ 200.
+        /// <para/>
+        /// Two independent 0-199 assumptions, both fatal to the bar rather than cosmetic-within-it:
+        /// <list type="bullet">
+        /// <item><c>BigProgressBarSystem.TryFindingNPCToTrack</c> scans <c>for (i &lt; 200)</c> to pick which NPC
+        /// the bar follows, and <c>TryTracking</c> then rejects any index above 200 outright. A boss placed in
+        /// the bonus zone therefore gets <b>no bar at all</b>.</item>
+        /// <item>The individual bars re-scan the array to total up their multi-part bodies — the Eater of
+        /// Worlds sums every active segment, the Twins/Golem/Moon Lord/Saucer/Pirate Ship/Brain look up their
+        /// other halves — and every one of those scans stops at 200 too, so a bar that does appear reads a
+        /// fraction of the real health.</item>
+        /// </list>
+        /// Bosses are zoned into 0-199 precisely so this sort of thing doesn't bite, which is why it went
+        /// unnoticed; it surfaces as soon as the low zone is full (a Destroyer is 82 slots on its own, and a
+        /// boss-multiplier mod trivially overflows it) and the overflow lands high.
+        /// <para/>
+        /// Blanket-widening every <c>200</c> in these types is safe in a way it would not be elsewhere: they
+        /// are small display-only classes whose <i>only</i> 200s are NPC-index bounds — verified by
+        /// decompiling all ten. Nothing here can affect gameplay state; the worst a mistake could do is draw a
+        /// wrong bar.
+        /// </summary>
+        private static void ApplyBossHealthBarPatches(Mod mod)
+        {
+            string[] typeNames =
+            {
+                "BigProgressBarSystem",          // picks the tracked NPC + the >200 rejection
+                "CommonBossBigProgressBar",      // the default single-NPC bar
+                "EaterOfWorldsProgressBar",      // sums every active segment of type 13-15
+                "TwinsBigProgressBar",
+                "MoonLordProgressBar",
+                "GolemHeadProgressBar",
+                "MartianSaucerBigProgressBar",
+                "PirateShipBigProgressBar",
+                "BrainOfCthuluBigProgressBar",
+                "DeerclopsBigProgressBar",
+            };
+
+            int patched = 0, missing = 0;
+            foreach (string name in typeNames)
+            {
+                Type t = typeof(Main).Assembly.GetType("Terraria.GameContent.UI.BigProgressBar." + name);
+                if (t == null)
+                {
+                    mod.Logger.Error($"[MMM] boss-bar type not found: {name} (skipped)");
+                    missing++;
+                    continue;
+                }
+
+                foreach (MethodInfo m in t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic
+                                                    | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+                {
+                    if (!ContainsLiteral200(m))
+                        continue;
+
+                    try
+                    {
+                        MonoModHooks.Modify(m, Patch_BossBarBounds);
+                        patched++;
+                    }
+                    catch (Exception e)
+                    {
+                        mod.Logger.Error($"[MMM] boss-bar patch FAILED for {name}.{m.Name} (skipped): {e.Message}");
+                    }
+                }
+            }
+
+            mod.Logger.Info($"[MMM] IL patched: boss health bars — {patched} method(s) across {typeNames.Length - missing} type(s).");
+        }
+
+        /// <summary>
+        /// Cheap pre-filter so we only hook methods that actually contain a literal 200.
+        /// <para/>
+        /// 200 exceeds <c>ldc.i4.s</c>'s signed-byte range, so it is always the five-byte <c>ldc.i4</c> form
+        /// (<c>0x20 C8 00 00 00</c>) — a raw byte scan can therefore never MISS one. It can produce a false
+        /// positive by matching the operand bytes of some other instruction, which costs nothing: the
+        /// manipulator finds no real match and leaves the method alone.
+        /// </summary>
+        private static bool ContainsLiteral200(MethodInfo m)
+        {
+            try
+            {
+                byte[] il = m.GetMethodBody()?.GetILAsByteArray();
+                if (il == null)
+                    return false;
+
+                for (int i = 0; i + 4 < il.Length; i++)
+                    if (il[i] == 0x20 && il[i + 1] == 0xC8 && il[i + 2] == 0 && il[i + 3] == 0 && il[i + 4] == 0)
+                        return true;
+            }
+            catch { /* dynamic / no body — nothing to patch */ }
+
+            return false;
+        }
+
+        // Widen every NPC-index 200 in a boss-bar method. Unlike Patch_AllNpcLoopBounds200 this must not throw
+        // on zero matches: the byte-level pre-filter is allowed to produce false positives.
+        private static void Patch_BossBarBounds(ILContext il)
+        {
+            var c = new ILCursor(il);
+            int count = 0;
+            while (c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            {
+                ReplaceWithNpcCap(c, il);
+                c.Index++;
+                count++;
+            }
+
+            if (count > 0)
+                ModRef?.Logger.Info($"[MMM] boss-bar patch widened {count} NPC index bound(s) in {il.Method.DeclaringType?.Name}.{il.Method.Name}");
         }
 
         // Old One's Army (DD2) relies on 0-199 NPC scans to find the Eternia Crystal (548) / portals (549),
