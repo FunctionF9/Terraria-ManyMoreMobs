@@ -35,19 +35,20 @@ namespace ManyMoreMobs
         public int MaxNPCTotal { get; set; } = 750;
 
         // ── 2. Category slots: how the budget is split (Town / Boss / Critter / Enemy) ──────────────
-        // EXPANDED: a hard reservation — the four should sum to the total (defaults 40/160/25/525 = 750) so
+        // EXPANDED: a hard reservation — the four should sum to the total (defaults 100/100/25/525 = 750) so
         // each category has guaranteed space; Town+Boss live in the native 0-199 zone, Critter+Enemy above.
         // DEFAULT: these act as CEILINGS over the shared 200 — Town/Boss always spawn (low-priority NPCs are
         // despawned to fit them), Critter/Enemy are limited to their value. See GetEffectiveCaps.
         [Header("CategoryCaps")]
-        [Range(1, 40)]
-        [DefaultValue(40)]
-        public int TownNPCCap { get; set; } = 40;
+        [Range(1, 100)]
+        [DefaultValue(100)]
+        public int TownNPCCap { get; set; } = 100;
 
-        // 160 leaves plenty of room for a full Destroyer (head + ~85 body segments all count as Boss).
-        [Range(1, 160)]
-        [DefaultValue(160)]
-        public int BossCap { get; set; } = 160;
+        // 100 still fits a full Destroyer (head + ~85 body segments all count as Boss). Both ceilings top out
+        // at 100 on purpose: Town + Boss can then never oversubscribe the native 0-199 zone they share.
+        [Range(1, 100)]
+        [DefaultValue(100)]
+        public int BossCap { get; set; } = 100;
 
         [Range(1, 500)]
         [DefaultValue(25)]

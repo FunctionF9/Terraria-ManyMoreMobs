@@ -84,7 +84,7 @@ Configs: {
 			Tooltip:
 				'''
 				The total NPC budget in EXPANDED mode, shared between the four category slots below.
-				The four slots should add up to this (default: 40 Town + 160 Boss + 25 Critter + 525 Enemies = 750).
+				The four slots should add up to this (default: 100 Town + 100 Boss + 25 Critter + 525 Enemies = 750).
 				Ignored in Default mode (it's clamped to vanilla 200). Needs a reload to change.
 				'''
 		}

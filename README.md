@@ -53,6 +53,14 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 
 
 # Versioning History
+## Version 0.7.6.7 - boss checklist compat & cap redistribution
+- Bombs, dynamite and grenades should behave again alongside Boss Checklist. With both on they damaged one enemy, skipped the rest of the blast and left the ground intact - but only when something was in range to die. **test confirmed by dev**
+- Cause: Boss Checklist sizes an internal array to the game's NPC limit and indexes it by slot number. That limit still reads 200 with this mod on, deliberately - the engine is redirected to the raised value while the number itself is left alone so nothing else misreads it. So any enemy dying above slot 199 ran off the end of that array. The error gets swallowed rather than crashing, and it takes the rest of the frame's work with it, which is why an explosion's damage pass stopped at the first kill and never reached the part that breaks tiles.
+- That array is now kept at the raised size. It only does anything when Boss Checklist is loaded.
+- The fault is on this side rather than theirs: they ask the documented question and get an honest answer, and raising the ceiling without moving that number is what breaks the assumption. Any mod that sizes something per NPC slot can hit the same thing, so keep reporting them - checking one takes minutes now.
+- Checked every other mod installed here while in there. Cheat Sheet's Butcherer only clears the first 200 slots, so it leaves part of a horde standing; harmless, but you will notice it. Nothing else touched the NPC limit at all.
+- Town and Boss slots are now 100 each, up from 40 and down from 160, and both sliders stop at 100 so the two can never oversubscribe the 0-199 zone they share. The Boss cut costs less than it looks: a worm's extra segments are exempt from that ceiling by design so it always spawns whole, and the overflow goes to the expanded slots - three Eaters of Worlds already ran about 204 against the old 160. Three Destroyers and three Eaters at 100: full length, map icons intact. **test confirmed by dev**
+
 ## Version 0.7.6.6 - segmented-enemies hotfix
 - An Eater of Worlds was counting as one boss plus sixty-odd ordinary enemies, so a single fight could swallow most of the enemy budget while the boss budget sat idle. Other worms tag their segments to the head; the Eater doesn't, because it has to be able to split. It should now count as one boss, whole. **test confirmed by dev**
 - Worms and Wyverns should no longer arrive chopped. Each segment is a separate spawn, and one turned away by a full enemy budget left a truncated worm, or a torso that promptly deleted itself. Segments now get first claim on a slot, despawning a low-priority mob if the world is completely full. **test confirmed by dev**

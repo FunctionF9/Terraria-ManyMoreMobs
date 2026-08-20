@@ -180,7 +180,7 @@ namespace ManyMoreMobs
         /// whole" guarantee a no-op for everyone on the default settings, since Expanded IS the default.
         /// The reservation does guarantee each category its own zoned space — but a multi-part body bypasses
         /// its category ceiling on purpose, so a worm can legitimately need far more than the boss budget
-        /// holds: three Destroyers want 246 slots against a BossCap of 160. The overflow spills into whatever
+        /// holds: three Destroyers want 246 slots against a BossCap of 100. The overflow spills into whatever
         /// is free, and once the array is genuinely full the retry cannot help, because
         /// <see cref="SlotAllocator"/> ignores <c>start</c> and runs the same four-pass search either way. So
         /// the second attempt was the first attempt again, and the segment was simply refused — a chopped worm,
