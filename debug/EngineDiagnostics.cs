@@ -46,6 +46,25 @@ namespace ManyMoreMobs
             catch { return -1; }
         }
 
+        /// <summary>One line naming any mod whose NPC arrays are still vanilla-sized. Must never throw: this
+        /// runs inside the world-load dump, and reflecting over every loaded mod is exactly the kind of thing
+        /// one awkward assembly can spoil.</summary>
+        private static void AppendModArraySummary(StringBuilder sb)
+        {
+            try
+            {
+                ModArrayScanner.Build(out int stale, out int checkedCount, out string staleMods);
+                sb.AppendLine(stale == 0
+                    ? $"mod NPC arrays: {checkedCount} checked, 0 stale."
+                    : $"mod NPC arrays: {checkedCount} checked, !! {stale} STALE (still sized 200) in: {staleMods}"
+                      + "  — run /debugnpc modarrays for the field names");
+            }
+            catch (Exception e)
+            {
+                sb.AppendLine($"mod NPC arrays: scan failed ({e.GetType().Name})");
+            }
+        }
+
         /// <summary>Cap/array state plus a per-category histogram split into vanilla (0-199) and bonus (200+) zones.</summary>
         public static string BuildStateReport()
         {
@@ -53,6 +72,15 @@ namespace ManyMoreMobs
             var config = ModContent.GetInstance<ManyMoreMobsConfig>();
 
             sb.AppendLine($"AppliedCap={MaxNpcCapRaise.AppliedCap}  Main.maxNPCs(direct)={Main.maxNPCs} (reflection)={ReflectionMaxNPCs()}  Main.npc.Length={Main.npc.Length}");
+            // Whether other mods got to size their own NPC arrays against the raised cap. When this says "no",
+            // every content mod in the list built itself for 200 slots and any crash above slot 199 starts here.
+            sb.AppendLine($"early raise (other mods see the real cap): {(EarlyCapRaise.Applied ? "yes" : "no")}");
+            // Cheap summary of the same scan /debugnpc modarrays prints in full. Worth having unprompted: a mod
+            // array stuck at 200 does not crash, it silently ignores every NPC above slot 199 — so nobody knows
+            // to go looking. The one line that would have named the culprit is the one that has to appear on
+            // its own. It also catches the residual case the early raise cannot: a mod that loaded a
+            // vanilla-sized array back out of an old world's saved data.
+            AppendModArraySummary(sb);
             if (config != null)
             {
                 var caps = config.GetEffectiveCaps();

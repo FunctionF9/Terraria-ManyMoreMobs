@@ -24,23 +24,56 @@ namespace ManyMoreMobs
     /// </summary>
     internal static class EngineArrayResizer
     {
+        /// <summary>
+        /// The NPC array half of <see cref="Grow"/>, run from <see cref="EarlyCapRaise"/> during mod
+        /// construction so that <c>Main.npc</c> is never shorter than the cap other mods are about to read.
+        /// <para/>
+        /// The new slots are built exactly the way <c>Main.Initialize</c> builds slots 0-200 — a bare
+        /// <c>new NPC()</c> with its index stamped, nothing more. <c>SetDefaults</c> is deliberately NOT called
+        /// here: it runs the <c>GlobalNPC.SetDefaults</c> chain, and at construction time no mod has registered
+        /// any content for that chain to walk. <paramref name="filledFrom"/> reports where this left off so the
+        /// later <see cref="Grow"/> can finish the job properly.
+        /// </summary>
+        public static void GrowNpcArrayEarly(int total, out int filledFrom)
+        {
+            int npcArrayLen = total + 1; // +1 for the dummy/failure slot at index == maxNPCs
+            filledFrom = int.MaxValue;
+
+            if (Main.npc.Length >= npcArrayLen)
+                return;
+
+            filledFrom = Main.npc.Length;
+            Array.Resize(ref Main.npc, npcArrayLen);
+            for (int i = filledFrom; i < npcArrayLen; i++)
+                Main.npc[i] = new NPC { whoAmI = i };
+
+            if (NPC.lazyNPCOwnedProjectileSearchArray.Length < total)
+                Array.Resize(ref NPC.lazyNPCOwnedProjectileSearchArray, total);
+        }
+
         public static void Grow(int total, Mod mod)
         {
             int npcArrayLen = total + 1; // +1 for the dummy/failure slot at index == maxNPCs
 
-            // Main.npc — preserve existing entries, populate the new slots with real (inactive) NPCs.
+            // Main.npc — preserve existing entries, populate the new slots with real (inactive) NPCs. Start at
+            // whichever came first: the slots still missing, or the bare ones GrowNpcArrayEarly left behind.
+            int oldLen = Math.Min(Main.npc.Length, EarlyCapRaise.NpcArrayFilledFrom);
             if (Main.npc.Length < npcArrayLen)
-            {
-                int oldLen = Main.npc.Length;
                 Array.Resize(ref Main.npc, npcArrayLen);
-                for (int i = oldLen; i < npcArrayLen; i++)
-                {
-                    var n = new NPC();
-                    n.SetDefaults(NPCID.None);
-                    n.whoAmI = i;
-                    n.active = false;
-                    Main.npc[i] = n;
-                }
+
+            for (int i = 0; i < npcArrayLen; i++)
+            {
+                // The null test is not redundant with the index test. If the early grow throws part-way through
+                // its own fill loop, it never reports where it started, and the tail it had already resized
+                // would stay null — an NRE waiting in a slot nobody looks at until a horde reaches it.
+                if (i < oldLen && Main.npc[i] != null)
+                    continue;
+
+                var n = new NPC();
+                n.SetDefaults(NPCID.None);
+                n.whoAmI = i;
+                n.active = false;
+                Main.npc[i] = n;
             }
 
             // NPC.lazyNPCOwnedProjectileSearchArray — static, indexed by whoAmI.

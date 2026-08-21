@@ -1,6 +1,8 @@
+using System.Collections.Generic;
 using System.Text;
 using Microsoft.Xna.Framework;
 using Terraria;
+using Terraria.ID;
 using Terraria.ModLoader;
 
 namespace ManyMoreMobs
@@ -31,11 +33,42 @@ namespace ManyMoreMobs
         private static int _hitBudget;
         private static int _dumpBudget;
 
+        // Which NPC slots a projectile or swing has already reported a hit on THIS frame.
+        // tModLoader routes every player-caused hit through ModPlayer.OnHitNPC, projectiles and swings
+        // included, so without this the contact tracker re-reports hits the specific trackers already logged.
+        // Verified from a live log that the projectile hook fires first, so claiming there and checking here
+        // is the right way round.
+        private static ulong _claimFrame = ulong.MaxValue;
+        private static readonly HashSet<int> _claimedSlots = new();
+
+        /// <summary>A specific tracker has reported this hit; the catch-all contact hook should stay quiet.</summary>
+        public static void ClaimHit(int npcSlot)
+        {
+            SyncClaimFrame();
+            _claimedSlots.Add(npcSlot);
+        }
+
+        /// <summary>Whether a more specific tracker already reported a hit on this slot this frame.</summary>
+        public static bool AlreadyClaimed(int npcSlot)
+        {
+            SyncClaimFrame();
+            return _claimedSlots.Contains(npcSlot);
+        }
+
+        private static void SyncClaimFrame()
+        {
+            if (_claimFrame == Main.GameUpdateCount)
+                return;
+            _claimFrame = Main.GameUpdateCount;
+            _claimedSlots.Clear();
+        }
+
         public static string Toggle()
         {
             Enabled = !Enabled;
             _hitBudget = 3000;
             _dumpBudget = 1500;
+            _claimedSlots.Clear();
             string msg = Enabled
                 ? "[HITTRACK] tracking ON — swing/fire into a crowd, then /debugnpc track to stop."
                 : "[HITTRACK] tracking OFF.";
@@ -53,6 +86,11 @@ namespace ManyMoreMobs
             {
                 Enabled = false;
                 MmmLog.Info("[HITTRACK] auto-stopped (hit budget reached).");
+                // Say so in chat, not just in a file nobody is reading mid-fight. A silent auto-stop means the
+                // second half of a test session records nothing and the weapon under test looks broken when in
+                // fact it was never watched — which is exactly what happened on 2026-08-21.
+                if (Main.netMode != NetmodeID.Server)
+                    Main.NewText("[MMM] /debugnpc track auto-stopped (hit budget reached) — run it again to continue.");
             }
         }
 
@@ -138,6 +176,7 @@ namespace ManyMoreMobs
         {
             if (!HitTracker.Enabled || !IsLocalPlayerProjectile(projectile))
                 return;
+            HitTracker.ClaimHit(target.whoAmI);
             HitTracker.Log($"[HITTRACK] f{Main.GameUpdateCount} *** HIT proj#{projectile.whoAmI} t{projectile.type} {Kind(projectile)} projDmg={projectile.damage} -> npc{target.whoAmI} type{target.type} def={target.defense} dmgDone={damageDone} life={target.life}/{target.lifeMax}");
         }
     }
@@ -212,7 +251,38 @@ namespace ManyMoreMobs
         {
             if (!HitTracker.Enabled || Player.whoAmI != Main.myPlayer)
                 return;
+            HitTracker.ClaimHit(target.whoAmI);
             HitTracker.Log($"[HITTRACK-MELEE] f{Main.GameUpdateCount} *** SWING HIT item{item.type} -> npc{target.whoAmI} type{target.type} def={target.defense} dmgDone={damageDone} life={target.life}/{target.lifeMax}");
+        }
+
+        /// <summary>
+        /// Catch-all for player-caused hits, here to cover the one thing the other two trackers cannot see:
+        /// damage dealt by TOUCHING an NPC — dashes (Shield of Cthulhu, Solar Flare) and the collision attacks
+        /// sharing their code path, which funnel through <c>Player.ApplyDamageToNPC</c> /
+        /// <c>Player.CollideWithNPCs</c> and appear in neither <c>OnHitNPCWithItem</c> nor the projectile hook.
+        /// That gap mattered: <c>Player.DashMovement</c> is precisely the patch that was failing silently
+        /// against Calamity, and a test session full of dashing read identically to one where every dash missed.
+        /// <para/>
+        /// <b>This hook is NOT contact-only.</b> tModLoader routes every player-caused hit through it, including
+        /// projectile and swing hits — measured, not assumed: one session logged 2317 "contact" hits that were
+        /// the same (frame, NPC) set as its 2317 projectile hits, exactly doubling the log and burning the hit
+        /// budget twice as fast, which silently cut that test short. So anything a more specific tracker has
+        /// already claimed this frame is skipped here.
+        /// </summary>
+        public override void OnHitNPC(NPC target, NPC.HitInfo hit, int damageDone)
+        {
+            if (!HitTracker.Enabled || Player.whoAmI != Main.myPlayer)
+                return;
+
+            // Already reported as a projectile or swing hit — logging it again would say nothing new.
+            if (HitTracker.AlreadyClaimed(target.whoAmI))
+                return;
+
+            bool dashing = Player.eocDash > 0 || Player.dashDelay < 0;
+            HitTracker.Log($"[HITTRACK-CONTACT] f{Main.GameUpdateCount} *** {(dashing ? "DASH" : "TOUCH")} HIT " +
+                           $"eocDash={Player.eocDash} dashDelay={Player.dashDelay} dashType={Player.dashType} " +
+                           $"-> npc{target.whoAmI} type{target.type} def={target.defense} dmgDone={damageDone} " +
+                           $"life={target.life}/{target.lifeMax}");
         }
     }
 }

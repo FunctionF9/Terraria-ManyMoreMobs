@@ -122,6 +122,24 @@ namespace ManyMoreMobs
         [DefaultValue(true)]
         public bool ExperimentalMultiplayerFixes { get; set; } = true;
 
+        // Raises Terraria's NPC limit before ANY other mod loads, so mods that size their own NPC arrays and
+        // loops from that number build themselves around the real cap instead of around 200. This is what makes
+        // big content mods (Calamity and friends) work: without it their arrays stay 200 long while NPCs exist
+        // above slot 199, and the resulting crash lands inside the spawn and NPC-update loops — which reads, in
+        // game, as enemies not spawning at all. Needs a reload. Turn it off to get the old behaviour back if a
+        // mod dislikes the larger arrays.
+        [ReloadRequired]
+        [DefaultValue(true)]
+        public bool RaiseCapBeforeOtherMods { get; set; } = true;
+
+        // Fallback for the above: rewrites other mods' compiled reads of the NPC limit to the raised cap. Only
+        // worth turning on if a mod still misbehaves with the early raise on — the early raise fixes the same
+        // problem at its source, and this pass costs several seconds of load time with a large mod list.
+        // Cannot help a mod that hardcodes 200 instead of reading the field. Needs a reload.
+        [ReloadRequired]
+        [DefaultValue(false)]
+        public bool PatchOtherModsNpcLimit { get; set; } = false;
+
         /// <summary>
         /// The total NPC budget actually available right now. Uses <see cref="MaxNpcCapRaise.AppliedCap"/>
         /// (the capacity we actually applied: 200 vanilla, or the raised total) instead of reading

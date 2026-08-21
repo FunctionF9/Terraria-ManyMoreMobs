@@ -12,7 +12,7 @@ namespace ManyMoreMobs
     {
         public override string Command => "debugnpc";
         public override string Usage =>
-            "/debugnpc <version|counts|dump|dumpall|validate|spawninfo|event|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
+            "/debugnpc <version|counts|dump|dumpall|validate|modarrays|spawninfo|event|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
         public override string Description => "Many More Mobs debug: inspect counts/state/spawn rate, validate arrays, test spawning. Full reports go to ManyMoreMobs-state.log (on the SERVER's machine in multiplayer; the summary still comes back to you in chat).";
 
         public override CommandType Type => CommandType.Chat;
@@ -110,6 +110,16 @@ namespace ManyMoreMobs
 
                     string msg = HitTracker.Toggle();
                     caller.Reply("[MMM] " + msg);
+                    break;
+                }
+
+                case "modarrays":
+                {
+                    string report = ModArrayScanner.Build(out int stale);
+                    MmmLog.Dump("/debugnpc modarrays", report);
+                    caller.Reply(stale == 0
+                        ? "[MMM] modarrays: every mod array found is sized for the raised cap. (details in ManyMoreMobs-state.log)"
+                        : $"[MMM] modarrays: {stale} array(s) still sized for 200 — see ManyMoreMobs-state.log for which mod");
                     break;
                 }
 

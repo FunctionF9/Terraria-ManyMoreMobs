@@ -152,7 +152,7 @@ namespace ManyMoreMobs.MMMultiplayer
 
             for (int i = 0; i < instrs.Count; i++)
             {
-                if (!instrs[i].MatchLdcI4(200))
+                if (!EngineILPatcher.SafeLdcI4(instrs[i], 200))
                     continue;
 
                 // Backward: Main.netMode read within 6 real instructions (ldloc, branch, ldc.i4.2, ldsfld).
@@ -238,7 +238,7 @@ namespace ManyMoreMobs.MMMultiplayer
             int widened = 0;
             for (int i = 0; i < instrs.Count; i++)
             {
-                if (i == guard || !instrs[i].MatchLdcI4(200))
+                if (i == guard || !EngineILPatcher.SafeLdcI4(instrs[i], 200))
                     continue;
 
                 Instruction next = null;
@@ -318,7 +318,7 @@ namespace ManyMoreMobs.MMMultiplayer
                     var c = new ILCursor(il);
                     if (!c.TryGotoNext(i => Calls(i, anchorCall)))
                         throw new Exception($"anchor {anchorCall} not found");
-                    if (!c.TryGotoPrev(i => i.MatchLdcI4(200)))
+                    if (!c.TryGotoPrev(i => EngineILPatcher.SafeLdcI4(i, 200)))
                         throw new Exception("bound literal 200 not found");
                     Widen(c);
                 });
@@ -359,7 +359,7 @@ namespace ManyMoreMobs.MMMultiplayer
                 var c = new ILCursor(il);
                 if (!c.TryGotoNext(i => i.MatchLdstr("Net.CheatingInvalid")))
                     throw new Exception("anchor \"Net.CheatingInvalid\" not found");
-                if (!c.TryGotoPrev(i => i.MatchLdcI4(200)))
+                if (!c.TryGotoPrev(i => EngineILPatcher.SafeLdcI4(i, 200)))
                     throw new Exception("bound literal 200 not found");
                 Widen(c);
             });
@@ -373,9 +373,9 @@ namespace ManyMoreMobs.MMMultiplayer
             Site("packet 8 — initial NPC sync on join", () =>
             {
                 var c = new ILCursor(il);
-                if (!c.TryGotoNext(i => i.MatchLdcI4(400)))
+                if (!c.TryGotoNext(i => EngineILPatcher.SafeLdcI4(i, 400)))
                     throw new Exception("preceding item-loop bound 400 not found");
-                if (!c.TryGotoNext(i => i.MatchLdcI4(200)))
+                if (!c.TryGotoNext(i => EngineILPatcher.SafeLdcI4(i, 200)))
                     throw new Exception("NPC loop bound 200 not found");
                 Widen(c);
             });

@@ -1,6 +1,5 @@
 using System;
 using System.Reflection;
-using System.Reflection.Emit;
 using Terraria;
 using Terraria.ModLoader;
 
@@ -16,10 +15,15 @@ namespace ManyMoreMobs
     /// <item><see cref="EngineArrayResizer.Grow"/> the NPC-indexed engine arrays,</item>
     /// <item>set the <c>readonly</c> <c>Main.maxNPCs</c> field to the new total.</item>
     /// </list>
-    /// Note: <c>Main.maxNPCs</c> is <c>static readonly</c>. In .NET 8 <see cref="FieldInfo.SetValue"/> throws
-    /// <see cref="FieldAccessException"/> on an init-only static after its type is initialized, so we instead
-    /// emit a tiny <c>stsfld</c> via <see cref="DynamicMethod"/> (skipVisibility) — the JIT does not enforce
-    /// init-only, so the store succeeds. This is the standard Harmony/MonoMod technique for readonly statics.
+    /// Note: <c>Main.maxNPCs</c> is <c>static readonly</c>, so it takes an emitted <c>stsfld</c> to write —
+    /// see <see cref="EarlyCapRaise.SetMaxNPCs"/>, which owns that setter because it needs it before this
+    /// <see cref="ModSystem"/> exists.
+    /// <para/>
+    /// <b>This is the LATE half of the raise.</b> <see cref="EarlyCapRaise"/> already wrote the field during
+    /// mod construction so other mods size their own arrays to the raised cap; what is left for here is the
+    /// engine state that only exists once content loading has finished. Both halves are idempotent, and either
+    /// one working alone still leaves a coherent engine.
+    /// <para/>
     /// Gated behind <see cref="ManyMoreMobsConfig.CapMode"/> being <see cref="NpcCapMode.Expanded"/> (both
     /// that and <c>MaxNPCTotal</c> are <c>[ReloadRequired]</c>), so a Default-mode install is never touched.
     /// On unload the cap is restored to 200 and the IL detours auto-undo via <see cref="MonoModHooks"/>.
@@ -30,7 +34,8 @@ namespace ManyMoreMobs
             typeof(Main).GetField(nameof(Main.maxNPCs), BindingFlags.Public | BindingFlags.Static);
 
         // Compiled `Main.maxNPCs = value;` — works on the readonly static where reflection SetValue cannot.
-        private static readonly Action<int> SetMaxNPCs = BuildMaxNPCsSetter();
+        // Built and owned by EarlyCapRaise, which needs it before this ModSystem exists.
+        private static Action<int> SetMaxNPCs => EarlyCapRaise.SetMaxNPCs;
 
         /// <summary>
         /// The NPC capacity this mod is actually operating at (200 vanilla, or the raised total once applied).
@@ -42,24 +47,21 @@ namespace ManyMoreMobs
         private static bool _patchesApplied;
         private static bool _applied;
 
-        private static Action<int> BuildMaxNPCsSetter()
-        {
-            if (MaxNPCsField == null)
-                return null;
-
-            var dm = new DynamicMethod("MMM_SetMaxNPCs", typeof(void), new[] { typeof(int) }, typeof(Main).Module, skipVisibility: true);
-            ILGenerator il = dm.GetILGenerator();
-            il.Emit(OpCodes.Ldarg_0);
-            il.Emit(OpCodes.Stsfld, MaxNPCsField);
-            il.Emit(OpCodes.Ret);
-            return (Action<int>)dm.CreateDelegate(typeof(Action<int>));
-        }
-
         public override void OnModLoad()
         {
             var config = ModContent.GetInstance<ManyMoreMobsConfig>();
             if (config == null || config.CapMode != NpcCapMode.Expanded)
+            {
+                // EarlyCapRaise read the same settings off disk before any ModConfig existed. If the loaded
+                // config disagrees (a corrupt or hand-edited file), the real one wins and the early raise is
+                // undone here — while no world is loaded and nothing has been indexed yet.
+                if (EarlyCapRaise.Applied)
+                {
+                    EarlyCapRaise.Revert();
+                    Mod.Logger.Warn("[MMM] Early cap raise reverted: the loaded config is not in Expanded mode.");
+                }
                 return;
+            }
 
             if (SetMaxNPCs == null)
             {
@@ -131,10 +133,9 @@ namespace ManyMoreMobs
             // Restore the vanilla cap so the engine is clean if this mod is disabled.
             // IL detours are undone automatically by MonoModHooks on unload; the grown arrays are left in
             // place (harmless — engine code only touches slots < the cap plus the dummy slot).
-            if (_applied)
-                TrySetMaxNPCs(200);
-
-            EngineState.NpcCap = 200;
+            // Unconditional: the raise can also have come from EarlyCapRaise, which runs long before the flag
+            // below is ever set, and leaving 750 in a readonly static after unload would outlive us.
+            EarlyCapRaise.Revert();
             _applied = false;
             _patchesApplied = false;
         }

@@ -140,7 +140,7 @@ namespace ManyMoreMobs
             PatchMethod(mod, typeof(Player), "ResetMeleeHitCooldowns");    // melee cooldown reset on death
             PatchMethod(mod, typeof(Player), "CollideWithNPCs");           // player contact/touch damage
             PatchMethod(mod, typeof(Player), "JumpMovement");             // slime-mount bounce damage
-            PatchMethod(mod, typeof(Player), "DashMovement");            // dash (Tabi/Master Ninja) damage
+            PatchMethod(mod, typeof(Player), "DashMovement");            // dash damage: Shield of Cthulhu + Solar Flare (both its 200s are NPC loops)
             PatchMethod(mod, typeof(Player), "MinionNPCTargetAim");        // whip/minion target aim (closest to cursor)
             PatchMethod(mod, typeof(Player), "GetZenithTarget");          // Zenith homing
             PatchMethod(mod, typeof(Player), "GetSparkleGuitarTarget");   // Sparkle Guitar homing
@@ -343,9 +343,9 @@ namespace ManyMoreMobs
             {
                 var c = new ILCursor(il);
                 // `... && Main.rand.Next(300) == 0 && !AnyNPCs(50)` — anchor on the AnyNPCs(50) guard.
-                if (!c.TryGotoNext(i => i.MatchLdcI4(50), i => i.MatchCall(anyNpcs)))
+                if (!c.TryGotoNext(i => SafeLdcI4(i, 50), i => i.MatchCall(anyNpcs)))
                     throw new Exception("AnyNPCs(50) anchor");
-                if (!c.TryGotoPrev(i => i.MatchLdcI4(300)))
+                if (!c.TryGotoPrev(i => SafeLdcI4(i, 300)))
                     throw new Exception("rand.Next(300) literal");
                 ScaleAfterLiteral(c, scaleOdds);
             });
@@ -355,9 +355,9 @@ namespace ManyMoreMobs
                 var c = new ILCursor(il);
                 // `... && Main.player[k].RollLuck(10) == 0 && !AnyNPCs(661)` — anchor on the AnyNPCs(661) guard,
                 // which is the only one in the game, then step back onto RollLuck's own argument.
-                if (!c.TryGotoNext(i => i.MatchLdcI4(661), i => i.MatchCall(anyNpcs)))
+                if (!c.TryGotoNext(i => SafeLdcI4(i, 661), i => i.MatchCall(anyNpcs)))
                     throw new Exception("AnyNPCs(661) anchor");
-                if (!c.TryGotoPrev(i => i.MatchLdcI4(10),
+                if (!c.TryGotoPrev(i => SafeLdcI4(i, 10),
                                    i => i.Operand is MethodReference mr && mr.Name == nameof(Player.RollLuck)))
                     throw new Exception("RollLuck(10) literal");
                 // Lacewing keeps a boosted rate outside the post-Empress cooldown — see ScaleLacewingOdds.
@@ -513,12 +513,12 @@ namespace ManyMoreMobs
             var c = new ILCursor(il);
 
             if (!(c.TryGotoNext(i => i.MatchLdsfld(out FieldReference f) && f.Name == "DangerDetectRange")
-                  && c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200))))
+                  && c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200))))
                 throw new Exception("town danger-detect loop not found");
             ReplaceWithNpcCap(c, il);
 
             if (!(c.TryGotoNext(i => i.MatchCall(out MethodReference m) && m.Name == "TweakSwingStats")
-                  && c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200))))
+                  && c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200))))
                 throw new Exception("town melee-attack loop not found");
             ReplaceWithNpcCap(c, il);
         }
@@ -536,7 +536,7 @@ namespace ManyMoreMobs
             c.Next.OpCode = OpCodes.Call;
             c.Next.Operand = il.Import(typeof(EngineState).GetMethod(nameof(EngineState.MeleeAttackGate)));
 
-            if (!c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            if (!c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
                 throw new Exception("melee loop bound not found");
             ReplaceWithNpcCap(c, il);
         }
@@ -554,7 +554,7 @@ namespace ManyMoreMobs
 
             if (!c.TryGotoNext(i => i.MatchLdfld(uses)))
                 throw new Exception("usesLocalNPCImmunity anchor not found");
-            if (!c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            if (!c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
                 throw new Exception("localNPCImmunity decrement bound `ldc.i4 200` not found");
 
             c.Remove();                          // remove the `ldc.i4 200` loop bound
@@ -572,7 +572,7 @@ namespace ManyMoreMobs
             var c = new ILCursor(il);
             FieldInfo arr = typeof(Projectile).GetField(nameof(Projectile.localNPCImmunity));
 
-            if (!c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            if (!c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
                 throw new Exception("ResetLocalNPCHitImmunity bound `ldc.i4 200` not found");
 
             c.Remove();                          // remove the `ldc.i4 200` loop bound
@@ -596,7 +596,7 @@ namespace ManyMoreMobs
 
             if (!c.TryGotoNext(i => i.MatchLdfld(dontCountMe)))
                 throw new Exception("dontCountMe anchor not found");
-            if (!c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            if (!c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
                 throw new Exception("radar count loop bound not found");
 
             ReplaceWithNpcCap(c, il);
@@ -652,13 +652,13 @@ namespace ManyMoreMobs
             // the loop's `ldc.i4 200` bound check sits just after the body.
             if (!c.TryGotoNext(i => i.MatchLdfld(rarity)))
                 throw new Exception("analyzer rarity anchor not found");
-            if (!c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            if (!c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
                 throw new Exception("analyzer scan loop bound not found");
             ReplaceWithNpcCap(c, il);
 
             // 3b. Display validity check `num14 < 200` — the next 200 after the loop bound, still inside the
             // analyzer block (the radar's own 200 comes later and is handled by the radar patch).
-            if (!c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            if (!c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
                 throw new Exception("analyzer display bound not found");
             ReplaceWithNpcCap(c, il);
 
@@ -713,7 +713,7 @@ namespace ManyMoreMobs
         {
             var c = new ILCursor(il);
             int n200 = 0;
-            while (c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            while (c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
             {
                 ReplaceWithNpcCap(c, il);
                 c.Index++;
@@ -723,7 +723,7 @@ namespace ManyMoreMobs
                 throw new Exception("health-bar `ldc.i4 200` helper loops not found");
 
             var c2 = new ILCursor(il);
-            if (!c2.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(199)))
+            if (!c2.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 199)))
                 throw new Exception("health-bar main draw loop init `ldc.i4 199` not found");
             ReplaceWithNpcCap(c2, il); // 199 -> NpcCap
             c2.Index++;
@@ -772,7 +772,7 @@ namespace ManyMoreMobs
 
             var c2 = new ILCursor(il);
             int widened = 0;
-            while (c2.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            while (c2.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
             {
                 Instruction after = c2.Next.Next;
                 while (after != null && after.OpCode == OpCodes.Nop)
@@ -864,7 +864,7 @@ namespace ManyMoreMobs
 
             for (int j = 0; j < instrs.Count; j++)
             {
-                if (!instrs[j].MatchLdcI4(200) || !TryFindLoopBodyStart(instrs, j, out int target))
+                if (!SafeLdcI4(instrs[j], 200) || !TryFindLoopBodyStart(instrs, j, out int target))
                     continue;
 
                 bool npcLoop = false;
@@ -902,7 +902,7 @@ namespace ManyMoreMobs
 
             for (int j = 0; j < instrs.Count; j++)
             {
-                if (!instrs[j].MatchLdcI4(200) || !TryFindLoopBodyStart(instrs, j, out int target))
+                if (!SafeLdcI4(instrs[j], 200) || !TryFindLoopBodyStart(instrs, j, out int target))
                     continue;
 
                 bool chase = false;
@@ -960,6 +960,39 @@ namespace ManyMoreMobs
             if (ins.Operand is Instruction i) return i;
             if (ins.Operand is ILLabel lbl) return lbl.Target;
             return null;
+        }
+
+        /// <summary>
+        /// A <c>MatchLdcI4</c> that cannot throw, and that still matches when the operand's type is odd.
+        /// <para/>
+        /// MonoMod's matcher casts an <c>ldc.i4.s</c> operand straight to <c>sbyte</c>. When another mod has
+        /// already rewritten the same method it can leave that instruction holding a boxed <c>int</c> instead,
+        /// and the cast then throws <c>InvalidCastException</c> out of the whole manipulator — killing every
+        /// remaining patch in that method, not just the one site. That is exactly how a Calamity-loaded session
+        /// silently lost <c>Player.DashMovement</c> (so dash damage stopped reaching enemies above slot 199).
+        /// Reading the operand ourselves recovers the match instead of dropping it.
+        /// <para/>
+        /// The two operand-carrying opcodes are handled here FIRST rather than in a catch block. Both orders
+        /// give the same answer, but the throw is not free: it is a first-chance exception on a path that runs
+        /// for every instruction of every patched method, and tModLoader logs each one with a full stack trace.
+        /// </summary>
+        internal static bool SafeLdcI4(Instruction instr, int value)
+        {
+            if (instr.OpCode == OpCodes.Ldc_I4 || instr.OpCode == OpCodes.Ldc_I4_S)
+            {
+                return instr.Operand switch
+                {
+                    int i32 => i32 == value,
+                    sbyte sb => sb == value,
+                    byte b => b == value,
+                    short s16 => s16 == value,
+                    _ => false,
+                };
+            }
+
+            // Everything else (ldc.i4.0 … ldc.i4.8, ldc.i4.m1) encodes its value in the opcode and cannot throw.
+            try { return instr.MatchLdcI4(value); }
+            catch { return false; }
         }
 
         private static bool IsConditionalBranch(OpCode op)
@@ -1088,7 +1121,7 @@ namespace ManyMoreMobs
         {
             var c = new ILCursor(il);
             int count = 0;
-            while (c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            while (c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
             {
                 ReplaceWithNpcCap(c, il);
                 c.Index++;
@@ -1331,7 +1364,7 @@ namespace ManyMoreMobs
         {
             var c = new ILCursor(il);
             int count = 0;
-            while (c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            while (c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
             {
                 ReplaceWithNpcCap(c, il);
                 c.Index++;
@@ -1348,7 +1381,7 @@ namespace ManyMoreMobs
         {
             var c = new ILCursor(il);
             int count = 0;
-            while (c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            while (c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
             {
                 ReplaceWithNpcCap(c, il);
                 c.Index++;
@@ -1380,7 +1413,7 @@ namespace ManyMoreMobs
             if (!c.TryGotoNext(i => i.MatchCallvirt(typeof(NPC).GetMethod(nameof(NPC.UpdateNPC)))))
                 throw new Exception("UpdateNPC call anchor not found");
 
-            if (!c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(200)))
+            if (!c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
                 throw new Exception("update-loop bound `ldc.i4 200` not found after UpdateNPC");
 
             ReplaceWithNpcCap(c, il);
@@ -1391,7 +1424,7 @@ namespace ManyMoreMobs
         {
             var c = new ILCursor(il);
 
-            if (!c.TryGotoNext(MoveType.Before, i => i.MatchLdcI4(199)))
+            if (!c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 199)))
                 throw new Exception("draw-loop init `ldc.i4 199` not found");
 
             ReplaceWithNpcCap(c, il); // ldc.i4 199 -> ldsfld maxNPCs
@@ -1420,7 +1453,7 @@ namespace ManyMoreMobs
             if (!c.TryGotoNext(i => i.MatchStfld(field)))
                 throw new Exception($"`stfld {field?.Name}` not found");
 
-            if (!c.TryGotoPrev(MoveType.Before, i => i.MatchLdcI4(200)))
+            if (!c.TryGotoPrev(MoveType.Before, i => SafeLdcI4(i, 200)))
                 throw new Exception($"{field?.Name} size literal `ldc.i4 200` not found");
 
             ReplaceWithNpcCap(c, il);

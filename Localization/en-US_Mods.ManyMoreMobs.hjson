@@ -145,6 +145,26 @@ Configs: {
 				'''
 		}
 
+		RaiseCapBeforeOtherMods: {
+			Label: Raise The Limit Before Other Mods Load
+			Tooltip:
+				'''
+				Other mods ask Terraria how many NPC slots exist and build their own arrays and loops from the answer. They ask while they are loading, so the answer they get has to already be the raised one - otherwise everything they built is sized for 200 while enemies live above slot 199, and the crash that follows lands inside the spawn loop and the enemy update loop. In game that looks like enemies simply never spawning.
+				With this on, the limit is raised before any other mod loads, so big content mods size themselves correctly on their own. Their code was never wrong; the raised ceiling is what broke the assumption.
+				Needs a reload. Turn it off to go back to the old behaviour if a mod dislikes the bigger arrays.
+				'''
+		}
+
+		PatchOtherModsNpcLimit: {
+			Label: Fix Other Mods' NPC Limit (Fallback)
+			Tooltip:
+				'''
+				A second, heavier way to fix the same problem: it rewrites other mods' compiled code so their reads of the NPC limit return the real cap.
+				Only worth turning on if a mod still misbehaves with the option above enabled. It cannot help a mod that types 200 by hand instead of asking, and it costs several seconds of loading time with a large mod list.
+				Needs a reload. If some mod misbehaves either way, let me know which one.
+				'''
+		}
+
 		ExperimentalMultiplayerFixes: {
 			Label: Experimental Multiplayer Fixes
 			Tooltip:
