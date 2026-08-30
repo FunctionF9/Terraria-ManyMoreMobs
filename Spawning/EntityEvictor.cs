@@ -63,9 +63,16 @@ namespace ManyMoreMobs
             }
 
             if (bestSlot < 0)
+            {
+                SpawnGateTelemetry.CountEvictionFailure();
                 return -1;
+            }
 
             NPC victim = Main.npc[bestSlot];
+            // Recorded BEFORE the removal: evicting a chain member breaks the body's ai[0]/ai[1] links, and
+            // the rest of it then tears itself apart through each segment's own orphan check. That is the one
+            // eviction outcome a player actually sees, so it gets its own counter.
+            SpawnGateTelemetry.CountEviction(victim.type, SegmentChain.IsMember(bestSlot));
             victim.active = false;
             // Keep clients in sync if we're the server (MP is otherwise deferred; harmless in single-player).
             if (Main.netMode == NetmodeID.Server)

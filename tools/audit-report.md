@@ -7,7 +7,7 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 - **PATCHED** — a patch targets this method. (Presence, not proof: verify the patch still matches.)
 - **SKIP** — deliberately excluded via an `AUDIT-SKIP` comment in the patcher.
 
-**243 NPC loops found · 118 in un-patched methods.**
+**248 NPC loops found · 115 in un-patched methods.**
 
 ## Terraria.Player
 
@@ -122,6 +122,7 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 | PATCHED | `DrawInterface_14_EntityHealthBars` | 59740 | `for (int num2 = 199; num2 >= 0; num2--)` |
 | PATCHED | `DrawInterface_14_EntityHealthBars` | 59857 | `for (int j = 0; j < 200; j++)` |
 | PATCHED | `DrawInterface_1_2_DrawEntityMarkersInWorld` | 60607 | `for (int i = 0; i < 200; i++)` |
+| PATCHED | `DrawInterface_Healthbar_Worm` | 60045 | `for (int i = head.whoAmI + 1; i < 200; i++)` |
 | **GAP** | `DrawMap` | 71742 | `for (int m = 0; m < 200; m++)` |
 | **GAP** | `DrawMap` | 71832 | `for (int num69 = 0; num69 < 200; num69++)` |
 | **GAP** | `DrawMap` | 72119 | `for (int num116 = 0; num116 < 200; num116++)` |
@@ -151,8 +152,9 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 | **GAP** | `AI_003_Fighters` | 63183 | `for (int num112 = 0; num112 < 200; num112++)` |
 | **GAP** | `AI_003_Fighters` | 63318 | `for (int num121 = 0; num121 < 200; num121++)` |
 | **GAP** | `AI_003_Fighters` | 63399 | `for (int num126 = 0; num126 < 200; num126++)` |
-| **GAP** | `AI_006_Worms` | 55237 | `for (int num64 = 0; num64 < 200; num64++)` |
-| **GAP** | `AI_006_Worms` | 55254 | `for (int num65 = 0; num65 < 200; num65++)` |
+| PATCHED | `AI_006_Worms` | 55237 | `for (int num64 = 0; num64 < 200; num64++)` |
+| PATCHED | `AI_006_Worms` | 55254 | `for (int num65 = 0; num65 < 200; num65++)` |
+| PATCHED | `AI_006_Worms` | 55466 | `while (num73 > 0 && num73 < 200 && Main.npc[num73].active && Main.npc[num73].aiStyle == aiStyle)` |
 | **GAP** | `AI_007_FindGoodRestingSpot` | 56348 | `for (int j = 0; j < 200; j++)` |
 | PATCHED | `AI_007_TownEntities` | 57247 | `for (int m = 0; m < 200; m++)` |
 | PATCHED | `AI_007_TownEntities` | 58812 | `for (int num55 = 0; num55 < 200; num55++)` |
@@ -164,7 +166,8 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 | **GAP** | `AI_007_TownEntities_GetWalkPrediction` | 59470 | `for (int i = 0; i < 200; i++)` |
 | **GAP** | `AI_007_TryForcingSitting` | 56390 | `for (int i = 0; i < 200; i++)` |
 | **GAP** | `AI_026_Unicorns` | 66715 | `for (int i = 0; i < 200; i++)` |
-| **GAP** | `AI_037_Destroyer` | 53038 | `for (int n = 0; n < 200; n++)` |
+| PATCHED | `AI_037_Destroyer` | 52823 | `while (num3 > 0 && num3 < 200)` |
+| PATCHED | `AI_037_Destroyer` | 53038 | `for (int n = 0; n < 200; n++)` |
 | **GAP** | `AI_045_Golem` | 14607 | `for (int i = 0; i < 200; i++)` |
 | **GAP** | `AI_065_Butterflies` | 45935 | `for (int l = 0; l < 200; l++)` |
 | PATCHED | `AI_084_LunaticCultist` | 69736 | `for (int i = 0; i < 200; i++)` |
@@ -188,6 +191,7 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 | **GAP** | `AnyHelpfulFairies` | 106994 | `for (int i = 0; i < 200; i++)` |
 | PATCHED | `AnyNPCs` | 107011 | `for (int i = 0; i < 200; i++)` |
 | **GAP** | `CanReleaseNPCs` | 86095 | `for (int i = 0; i < 200; i++)` |
+| PATCHED | `CheckActive_WormSegments` | 83939 | `while (num != whoAmI && num > 0 && num < 200)` |
 | PATCHED | `CountNPCS` | 106982 | `for (int i = 0; i < 200; i++)` |
 | **GAP** | `DropEoWLoot` | 84397 | `for (int i = 0; i < 200; i++)` |
 | PATCHED | `FindFirstNPC` | 107028 | `for (int i = 0; i < 200; i++)` |
@@ -195,6 +199,7 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 | **GAP** | `GetFirstNPCNameOrNull` | 2469 | `for (int i = 0; i < 200; i++)` |
 | **GAP** | `GetFullnameByID` | 1947 | `for (int i = 0; i < 200; i++)` |
 | PATCHED | `GetHurtByOtherNPCs` | 109920 | `for (int i = 0; i < 200; i++)` |
+| PATCHED | `GetNPCLocation` | 13880 | `while (num7 >= 0 && num7 < 200 && ++num8 < 100 && Main.npc[num7].active)` |
 | **GAP** | `GetTileCollisionParameters` | 110427 | `for (int i = 0; i < 200; i++)` |
 | **GAP** | `GetTileCollisionParameters` | 110438 | `for (int j = 0; j < 200; j++)` |
 | **GAP** | `HaveDryadDoStardewAnimation` | 14103 | `for (int i = 0; i < 200; i++)` |
@@ -331,4 +336,55 @@ Engine loops over `Main.npc` bounded by a hardcoded 200/199, grouped by enclosin
 
 | Status | Method | Line | Loop |
 |---|---|---|---|
+
+## Other slot-assumption shapes
+
+Not loops, so not diffable against the patch registry — **this is a triage list, not a verdict**.
+`likely` = the same line also names an NPC slot or `Main.npc`. `check` = it does not, and is
+probably a tile id, an NPC type id or a random roll that happens to use the same number.
+
+### SENTINEL — 758 found, 32 likely
+
+| Type | Method | Line | Code |
+|---|---|---|---|
+| Main | `OnPlayerSelected` | 1319 | `public static readonly int maxNPCs = 200;` |
+| Main | `DoUpdateInWorld` | 17765 | `if (NPC.brainOfGravity >= 0 && NPC.brainOfGravity < 200 && (!npc[NPC.brainOfGravity].active || npc[NPC.brainOfGravity].type != 266))` |
+| Main | `DrawProj_DrawNormalProjs` | 40893 | `if (proj.type == 200)` |
+| Main | `CacheProjDraws` | 49510 | `if (num >= 0 && num < 200 && npc[num].active && npc[num].type != 492)` |
+| Main | `DrawInterface_Healthbar_Worm` | 60045 | `for (int i = head.whoAmI + 1; i < 200; i++)` |
+| Main | `DrawInfoAccs` | 61389 | `if (num14 >= 0 && num14 < 200 && npc[num14].active && npc[num14].rarity > 0)` |
+| NPC | `GetNPCLocation` | 13880 | `while (num7 >= 0 && num7 < 200 && ++num8 < 100 && Main.npc[num7].active)` |
+| NPC | `AI_006_Worms` | 55466 | `while (num73 > 0 && num73 < 200 && Main.npc[num73].active && Main.npc[num73].aiStyle == aiStyle)` |
+| NPC | `CheckActive_WormSegments` | 83939 | `while (num != whoAmI && num > 0 && num < 200)` |
+| NPC | `SpawnNPC` | 87380 | `int newNPC = 200;` |
+| NPC | `SpawnNPC` | 90281 | `newNPC = NewNPC(GetSpawnSourceForNaturalSpawn(), num * 16 + 8, num2 * 16, 200);` |
+| NPC | `SpawnNPC` | 90528 | `newNPC = NewNPC(GetSpawnSourceForNaturalSpawn(), num * 16 + 8, num2 * 16, 201);` |
+| NPC | `SpawnNPC` | 90584 | `if (Main.netMode == 2 && newNPC < 200)` |
+| Player | `UpdateBuffs` | 9972 | `Projectile.NewProjectile(GetProjectileSource_Buff(j), position.X + (float)(width / 2), position.Y + (float)(height / 2), 0f, 0f, 199, 0, 0f, whoAmI);` |
+| Player | `UpdateBuffs` | 9986 | `Projectile.NewProjectile(GetProjectileSource_Buff(j), position.X + (float)(width / 2), position.Y + (float)(height / 2), 0f, 0f, 200, 0, 0f, whoAmI);` |
+| Player | `Update` | 25201 | `if (NPC.brainOfGravity >= 0 && NPC.brainOfGravity < 200 && Vector2.Distance(base.Center, Main.npc[NPC.brainOfGravity].Center) < 4000f)` |
+| Player | `PlaceThing_Tiles` | 39011 | `if (tileToCreate == 199 && targetTile.type == 59)` |
+| Player | `PlaceThing_Tiles` | 39016 | `if (canUse && ((!targetTile.active() && !flag) || (Main.tileCut[targetTile.type] && targetTile.type != 484) || (targetTile.type >= 373 && targetTile.type <= 375) || targetTile.type == 461 || tileToCreate == 199 || tileToCreate == 23 || tileToCreate == 662 || tileToCreate == 661 || tileToCreate == 2 || tileToCreate == 109 || tileToCreate == 60 || tileToCreate == 70 || tileToCreate == 633 || Main.tileMoss[tileToCreate] || TileID.Sets.BreakableWhenPlacing[targetTile.type]) && ItemTimeIsZero && itemAnimation > 0 && controlUseItem)` |
+| Player | `ItemCheck_EmitUseVisuals` | 45091 | `else if (sItem.type == 199 || sItem.type == 3765)` |
+| Player | `ItemCheck_EmitUseVisuals` | 45097 | `else if (sItem.type == 200 || sItem.type == 3766)` |
+| Player | `ItemCheck_EmitUseVisuals` | 45103 | `else if (sItem.type == 201 || sItem.type == 3767)` |
+| Player | `GetPickaxeDamage` | 54998 | `if (tileTarget.type == 211 && pickPower < 200)` |
+| Player | `GetPickaxeDamage` | 55084 | `if (tileTarget.type == 165 || Main.tileRope[tileTarget.type] || tileTarget.type == 199)` |
+| Player | `DoesPickTargetTransformOnKill` | 55155 | `if (hitCounter.AddDamage(bufferIndex, damage, updateAmount: false) >= 100 && (tileTarget.type == 2 || tileTarget.type == 477 || tileTarget.type == 492 || tileTarget.type == 23 || tileTarget.type == 60 || tileTarget.type == 70 || tileTarget.type == 109 || tileTarget.type == 199 || Main.tileMoss[tileTarget.type] || tileTarget.type == 662 || tileTarget.type == 661 || TileID.Sets.tileMossBrick[tileTarget.type] || tileTarget.type == 633))` |
+| Projectile | `VanillaAI` | 28883 | `if (Main.tile[num96, num97].type == 23 || Main.tile[num96, num97].type == 199)` |
+| Projectile | `VanillaAI` | 28910 | `if (Main.tile[num96, num97].type == 163 || Main.tile[num96, num97].type == 200)` |
+| Projectile | `VanillaAI` | 40340 | `Vector2 val200 = Main.npc[num953].Center - base.Center;` |
+| Projectile | `VanillaAI` | 40369 | `Vector2 val201 = Main.npc[num953].Center - base.Center;` |
+| Projectile | `AI_001` | 62793 | `float num199 = Main.npc[num198].position.X + (float)(Main.npc[num198].width / 2);` |
+| Projectile | `AI_001` | 62794 | `float num200 = Main.npc[num198].position.Y + (float)(Main.npc[num198].height / 2);` |
+| Projectile | `Kill` | 88718 | `Main.npc[num578].velocity.X = (float)Main.rand.Next(-200, 201) * 0.002f;` |
+| Projectile | `Kill` | 88719 | `Main.npc[num578].velocity.Y = (float)Main.rand.Next(-200, 201) * 0.002f;` |
+
+### ARRAY — 13 found, 0 likely
+
+_None slot-related._
+
+### BYTECAST — 0 found, 0 likely
+
+_None slot-related._
 

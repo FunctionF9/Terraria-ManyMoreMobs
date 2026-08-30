@@ -207,6 +207,61 @@ namespace ManyMoreMobs
             // Blind to high slots it undercounts, letting statues flood the world past their vanilla limit.
             PatchNpcLoops(mod, typeof(NPC), "MechSpawn");
 
+            // Worm-boss health bar position. DrawInterface_Healthbar_Worm scans forward from the head for
+            // the tail and draws the bar midway between them; the scan is `for (i = head.whoAmI + 1; i < 200)`.
+            // Boss zoning normally keeps a worm boss under 200, so this only bites once the low zone overflows
+            // — three Destroyers want ~246 slots against a default BossCap of 100, which the guaranteed-spawn
+            // path deliberately allows to spill. Then the tail is never found, `nPC` stays as the head, and the
+            // bar renders at the head instead of the worm's midpoint. 22-line method, one literal, the bound.
+            //
+            // Its initialiser is `head.whoAmI + 1`, not 0 — which is why the loop audit never listed it. The
+            // inventory regex demanded `= 0;`. It now accepts any initialiser.
+            Apply(mod, "Main.DrawInterface_Healthbar_Worm (tail seek)",
+                typeof(Main).GetMethod("DrawInterface_Healthbar_Worm", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // ── Multi-part body chain walks (0.7.7.1). A DIFFERENT loop SHAPE from everything above, and the
+            // reason these survived every earlier audit pass: a chain walk is a `while`, not a `for`, and the
+            // audit's inventory regex only matched `for (int i = 0; i < 200; i++)`. It reported them as
+            // nothing at all — not even as a GAP. tools/audit-npc-loops.sh now matches the while form too. ──
+
+            // A worm is a head plus dozens of segments, each following the next through ai[0]/ai[1]. When one
+            // despawns, the head is supposed to walk that chain and switch the whole body off silently. The
+            // walk is bounded `num < 200`, and our allocator fills Enemy from the TOP down, so for our worms
+            // the bound is never satisfied: the walk runs ZERO iterations and cleans up nothing. The head goes
+            // inactive and leaves a live body behind, which then tears itself apart one segment at a time
+            // through each segment's own orphan check — and that check runs HitEffect() at zero life, which is
+            // the DEATH GORE. Loot is suppressed the whole way down because segments carry realLife = head.
+            // So instead of a worm quietly vanishing you get body parts popping one by one and no drops.
+            //
+            // Every int 200 in all four methods is an NPC bound (checked against the decompiled 1.4.4 source:
+            // 1, 3, 2 and 1 literals respectively; AI_006_Worms' fourth is `200f`, a float, which SafeLdcI4
+            // cannot match anyway), so the blanket manipulator is safe here and throws if the engine changes.
+            Apply(mod, "NPC.CheckActive_WormSegments (chain walk)",
+                typeof(NPC).GetMethod("CheckActive_WormSegments", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Same walk in the worm AI's biome-departure despawn (its type checks name the two Underground
+            // Desert worms, Dune Splicer and Tomb Crawler, by number). Also widens the two separation scans
+            // that keep worms from overlapping each other — those are per-segment per-tick, so this is the one
+            // patch in this group with a real cost attached; measure before assuming it is free.
+            Apply(mod, "NPC.AI_006_Worms (chain walk + separation)",
+                typeof(NPC).GetMethod("AI_006_Worms", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // The Destroyer counts its own segments through the same kind of walk, and wipes them through a
+            // 0-199 scan. Both blind above slot 199.
+            Apply(mod, "NPC.AI_037_Destroyer (segment census)",
+                typeof(NPC).GetMethod("AI_037_Destroyer", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // GetNPCLocation(seekHead: true) walks a segment chain back to its head. This is what the boss
+            // health bar asks "which NPC am I actually drawing?", so a worm boss whose head sits above slot
+            // 199 answers wrong -- the same failure class as the 0.7.6.6 health-bar bug.
+            Apply(mod, "NPC.GetNPCLocation (worm-head seek)",
+                typeof(NPC).GetMethod(nameof(NPC.GetNPCLocation), BindingFlags.Public | BindingFlags.Static),
+                Patch_AllNpcLoopBounds200);
+
             // ── Dropped-item / NPC interactions (0.7.6.2). Terraria.Item was never covered by the loop audit
             // (it only decompiled Player/Projectile/Main/NPC), so these went unnoticed until a player reported
             // the Copper Slime not working. ──
@@ -1332,11 +1387,23 @@ namespace ManyMoreMobs
             catch { return false; }
         }
 
+        // ── Patch tally, for /debugnpc info ──
+        // A failed patch is the single most diagnostic fact about a content-mod conflict: another mod rewrote
+        // the same method first and our anchor no longer matches. It was only ever an Error line in client.log,
+        // which a player reporting a bug has no reason to open. Counted here so the triage command can say
+        // "3 failed" and name them.
+        internal static int PatchesApplied, PatchesFailed, PatchesMissing;
+
+        /// <summary>Names of patches that failed or whose target was not found, for the triage readout.</summary>
+        internal static readonly List<string> PatchProblems = new();
+
         private static void Apply(Mod mod, string name, MethodBase method, ILContext.Manipulator manip)
         {
             if (method == null)
             {
                 mod.Logger.Error($"[MMM] IL target not found: {name} — cap raise incomplete.");
+                PatchesMissing++;
+                Record(name + " (target not found)");
                 return;
             }
 
@@ -1344,11 +1411,21 @@ namespace ManyMoreMobs
             {
                 MonoModHooks.Modify(method, manip);
                 mod.Logger.Info($"[MMM] IL patched: {name}");
+                PatchesApplied++;
             }
             catch (Exception e)
             {
                 mod.Logger.Error($"[MMM] IL patch FAILED for {name} (skipped; game stays stable): {e.Message}");
+                PatchesFailed++;
+                Record(name);
             }
+        }
+
+        /// <summary>Remember a problem patch by name, bounded so a pathological load can't grow this forever.</summary>
+        private static void Record(string name)
+        {
+            if (PatchProblems.Count < 40)
+                PatchProblems.Add(name);
         }
 
         /// <summary>Turn the <c>ldc.i4</c> the cursor is positioned before into <c>ldsfld EngineState.NpcCap</c>.</summary>

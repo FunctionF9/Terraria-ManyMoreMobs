@@ -90,8 +90,23 @@ for t in $TYPES; do
 done
 
 # ── 2. Inventory every NPC-indexed loop, tagged with its enclosing method ──
-# Catches both the ascending `< 200` form and the descending `= 199; >= 0` form
-# (the health-bar draw loop was a 199 that the blanket 200-patch never saw).
+# Catches the ascending `for (... < 200)` form, the descending `for (... = 199; >= 0)`
+# form (the health-bar draw loop was a 199 that the blanket 200-patch never saw),
+# and `while`/`do ... while` loops bounded by 200/199.
+#
+# The while form was added in 0.7.7.1. Chain WALKS are while loops, not for loops --
+# `while (num > 0 && num < 200)` following ai[0] down a worm -- and matching only
+# `for` hid four of them, including CheckActive_WormSegments, which runs on EVERY
+# worm despawn. Above slot 199 it cleans up nothing, the segments are orphaned, and
+# they self-delete one at a time through HitEffect(): visible gore, no loot. Do not
+# narrow this back to `for`.
+#
+# The ascending form's INITIALISER was also widened from `= 0` to anything, same
+# version and for the same reason: Main.DrawInterface_Healthbar_Worm starts its scan
+# at `head.whoAmI + 1`, so demanding `= 0;` reported it as nothing at all.
+#
+# The lesson both times: this regex defines what the audit can SEE. A loop shape it
+# does not match is not a GAP, it is invisible -- exactly as bad as a missing type.
 inventory() {
     awk -v TYPE="$1" '
         { line[NR] = $0 }
@@ -104,10 +119,16 @@ inventory() {
                     sub(/.*[ \t]/, "", m)       # drop return type / modifiers
                     if (m != "") method = m
                 }
-                asc  = (line[i] ~ /for \(int [A-Za-z0-9_]+ = 0; [A-Za-z0-9_]+ < 200[;&) ]/)
+                asc  = (line[i] ~ /for \(int [A-Za-z0-9_]+ = [^;]+; [A-Za-z0-9_]+ < 200[;&) ]/)
                 desc = (line[i] ~ /for \(int [A-Za-z0-9_]+ = 199; [A-Za-z0-9_]+ >= 0/)
-                if (!asc && !desc) continue
-                body = ""
+                # Chain walks: `while (num > 0 && num < 200 && ...)`. The bound is often
+                # ANDed with other terms and the index is usually re-read from ai[0], so
+                # there is no initialiser to anchor on -- match the bound alone.
+                wh   = (line[i] ~ /while \(/ && line[i] ~ /(< *200|<= *199)([^0-9]|$)/)
+                if (!asc && !desc && !wh) continue
+                # A while header carries its own npc[] test (`&& Main.npc[num].active`),
+                # so scan it too; a for header never needed it.
+                body = wh ? line[i] : ""
                 for (j = i + 1; j <= i + 6 && j <= NR; j++) body = body " " line[j]
                 if (body !~ /npc\[/) continue   # not an NPC loop (some other 200)
                 code = line[i]; gsub(/^[ \t]+|[ \t]+$/, "", code)
@@ -119,6 +140,61 @@ inventory() {
 
 : > "$WORK/loops.tsv"
 for t in $TYPES; do inventory "$(leaf "$t")" >> "$WORK/loops.tsv"; done
+
+# ── 2b. Inventory the NON-loop slot assumptions ──
+# Added 0.7.7.1. A loop bound is only the commonest way code assumes 200 slots, not the only one, and the
+# others have each cost a real bug:
+#
+#   SENTINEL  a bare 200/199/201 used as an index, a guard or a "nothing here" marker.
+#             `int newNPC = 200;` in NPC.SpawnNPC is the classic: harmless while Main.npc[200] is the inert
+#             dummy at the end of a 201-long array, an ordinary occupied enemy once the cap is raised.
+#   ARRAY     `new X[200]` / `[201]`. The mod-side version of this (an array sized to the cap at load time,
+#             indexed against the cap later) is what stopped ALL spawning with one big content mod.
+#   BYTECAST  `(byte)npc.whoAmI`. A byte holds 0..255, so every slot past 255 wraps to a valid-looking one.
+#             Found in two large content mods' packet writers; multiplayer only, and unfixable from outside.
+#
+# These CANNOT be diffed against the patch registry the way loops can — there is no manipulator that "covers
+# a sentinel" in general, and whether a given one matters depends on what the number means in context. So
+# they are reported as a triage list, not as GAP/PATCHED, and split by whether the line looks slot-related.
+# Expect false positives: tile ids, NPC type ids and rand.Next odds all use these numbers too.
+shapes() {
+    awk -v TYPE="$1" '
+        { line[NR] = $0 }
+        END {
+            method = "(file scope)"
+            for (i = 1; i <= NR; i++) {
+                if (line[i] ~ /^	(public|private|protected|internal)[^=]*\(/) {
+                    m = line[i]; sub(/\(.*/, "", m); sub(/.*[ 	]/, "", m)
+                    if (m != "") method = m
+                }
+                l = line[i]
+                if (l ~ /^[ 	]*\/\/IL_/) continue          # decompiler IL-offset comments
+                if (l ~ /for \(int [A-Za-z0-9_]+ = 0; [A-Za-z0-9_]+ < 200/) continue   # already in loops.tsv
+                if (l ~ /for \(int [A-Za-z0-9_]+ = 199; [A-Za-z0-9_]+ >= 0/) continue
+
+                kind = ""
+                if (l ~ /new [A-Za-z0-9_.<>\[\]]*\[(200|201)\]/) kind = "ARRAY"
+                else if (l ~ /\(byte\)[^;]*whoAmI/) kind = "BYTECAST"
+                else if (l ~ /(^|[^0-9.])(199|200|201)([^0-9.f]|$)/) {
+                    # Drop the two loudest false-positive families before they bury the real hits.
+                    probe = l
+                    gsub(/(rand\.Next|RollLuck|Next)\((199|200|201)\)/, "", probe)
+                    if (probe !~ /(^|[^0-9.])(199|200|201)([^0-9.f]|$)/) continue
+                    kind = "SENTINEL"
+                }
+                if (kind == "") continue
+
+                # "slot-ish" if the same line also names an NPC slot or the array itself.
+                slotish = (l ~ /npc\[|whoAmI|newNPC|NewNPC\(|\.type ==|maxNPCs/) ? "likely" : "check"
+                code = l; gsub(/^[ 	]+|[ 	]+$/, "", code)
+                printf "%s\t%s\t%s\t%s\t%d\t%s\n", TYPE, kind, slotish, method, i, code
+            }
+        }
+    ' "$WORK/$1.cs"
+}
+
+: > "$WORK/shapes.tsv"
+for t in $TYPES; do shapes "$(leaf "$t")" >> "$WORK/shapes.tsv"; done
 
 # ── 3. Parse the patch registry out of EngineILPatcher.cs ──
 # Explicit call shapes only — a loose "any quoted string" grep would mark gaps
@@ -239,6 +315,35 @@ covered() {
             elif covered "$key"; then status="PATCHED"
             else status="**GAP**"; fi
             printf '| %s | `%s` | %s | `%s` |\n' "$status" "$method" "$line" "${code//|/\\|}"
+        done
+        echo
+    done
+
+    # ── Non-loop shapes ──
+    echo "## Other slot-assumption shapes"
+    echo
+    echo "Not loops, so not diffable against the patch registry — **this is a triage list, not a verdict**."
+    echo "\`likely\` = the same line also names an NPC slot or \`Main.npc\`. \`check\` = it does not, and is"
+    echo "probably a tile id, an NPC type id or a random roll that happens to use the same number."
+    echo
+    for kind in SENTINEL ARRAY BYTECAST; do
+        n=$(awk -F'	' -v K="$kind" '$2 == K' "$WORK/shapes.tsv" | wc -l | tr -d ' ')
+        nl=$(awk -F'	' -v K="$kind" '$2 == K && $3 == "likely"' "$WORK/shapes.tsv" | wc -l | tr -d ' ')
+        echo "### $kind — $n found, $nl likely"
+        echo
+        if [ "$nl" -eq 0 ]; then
+            echo "_None slot-related._"
+            echo
+            continue
+        fi
+        printf '| Type | Method | Line | Code |
+|---|---|---|---|
+'
+        awk -F'	' -v K="$kind" '$2 == K && $3 == "likely"' "$WORK/shapes.tsv" |
+        sort -t$'	' -k1,1 -k5,5n |
+        while IFS=$'	' read -r type kind2 slotish method line code; do
+            printf '| %s | `%s` | %s | `%s` |
+' "$type" "$method" "$line" "${code//|/\|}"
         done
         echo
     done

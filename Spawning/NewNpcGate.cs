@@ -56,7 +56,11 @@ namespace ManyMoreMobs
         }
 
         // Chain tags describe one world's slots, so they must not survive a world change — see SegmentChain.Reset.
-        public override void OnWorldLoad() => SegmentChain.Reset();
+        public override void OnWorldLoad()
+        {
+            SegmentChain.Reset();
+            SpawnGateTelemetry.Reset();   // counts describe one world session, not the whole game launch
+        }
 
         public override void OnWorldUnload() => SegmentChain.Reset();
 
@@ -88,7 +92,10 @@ namespace ManyMoreMobs
                 if (authority
                     && PerTypeActiveCaps.TryGetValue(type, out int typeCap)
                     && NPC.CountNPCS(type) >= typeCap)
+                {
+                    SpawnGateTelemetry.CountPerTypeRefusal();
                     return EngineState.NpcCap; // blocked: dummy/failure index
+                }
 
                 // Source-aware category (detects boss segments/adds via their boss parent).
                 NpcCategory cat = NpcCategorizer.CategorizeSpawn(type, source, out bool bossParented);
@@ -136,7 +143,10 @@ namespace ManyMoreMobs
                 {
                     var config = ModContent.GetInstance<ManyMoreMobsConfig>();
                     if (config != null && IsBlockedByCeiling(config, cat, isBoss))
+                    {
+                        SpawnGateTelemetry.CountRefusal(cat);
                         return EngineState.NpcCap; // blocked: dummy/failure index (matches patched NewNPC)
+                    }
                 }
 
                 // Hand the source-aware category to the slot allocator so boss segments/adds are placed in

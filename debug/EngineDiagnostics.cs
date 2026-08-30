@@ -135,7 +135,118 @@ namespace ManyMoreMobs
         /// The local player's current effective spawn rate &amp; limit, the source (biome/blanket) and which
         /// spawn-item modifiers are active. Values are captured live in <see cref="SpawnRateMultiplier"/>.
         /// </summary>
-        public static string BuildSpawnInfoReport(Player p)
+         /// <summary>
+        /// <c>/debugnpc info</c> — the one command to ask a non-technical reporter to run.
+        /// <para/>
+        /// Every other <c>/debugnpc</c> command answers one subsystem in depth, which is only useful once you
+        /// already know which subsystem to suspect. This runs the cheap health check for all of them and prints
+        /// OK/WARN per area, so a pasted screenshot says WHICH specialised command to ask for next. Four lines
+        /// when nothing is wrong; a pointer line per warning when something is.
+        /// <para/>
+        /// Every check here must be side-effect free and safe to run at any moment, since it goes to people who
+        /// have no idea what it does. Note the one real cost: the mod-array scan reflects over other mods' static
+        /// fields and can force a class constructor to run — see <see cref="ModArrayScanner"/>. That is why it
+        /// stays on manually-typed debug commands and is never wired into an automatic path.
+        /// </summary>
+        public static string BuildInfoReport(Player p)
+        {
+            var sb = new StringBuilder();
+            var warnings = new List<string>();
+
+            void Check(bool ok, string label, string detail, string next)
+            {
+                if (!ok) warnings.Add($"{label}: {detail}  ->  {next}");
+            }
+
+            string version = ModContent.GetInstance<ManyMoreMobs>()?.Version?.ToString() ?? "?";
+            var config = ModContent.GetInstance<ManyMoreMobsConfig>();
+            int cap = EngineState.NpcCap;
+            int activeNpcs = 0;
+            for (int i = 0; i < cap && i < Main.npc.Length; i++)
+                if (Main.npc[i] != null && Main.npc[i].active) activeNpcs++;
+
+            sb.AppendLine($"[MMM] Many More Mobs {version} | cap {cap} {config?.CapMode.ToString() ?? "?"} | " +
+                          $"early raise {(EarlyCapRaise.Applied ? "yes" : "NO")} | {activeNpcs} NPCs active");
+
+            // Caps are reported as a FACT, never as a warning.
+            //
+            // Being at the Enemy ceiling is this mod's normal steady state — at the default 200x rate the cap
+            // fills within minutes of loading a world, and refusals climb into the thousands. An earlier
+            // version warned on it and the readout looked broken every time. Worse, the "is this suspicious?"
+            // test it used compared CategoryCounts (world-wide) against nearbyActiveNPCs (only what is near
+            // YOU), which are not comparable at all: standing in a town while the cap is full elsewhere tripped
+            // it. Whether a full ceiling is a problem depends on where the player is and what they expected to
+            // see, which no automatic test here can know — so print the numbers and let a human read them.
+            // /debugnpc blocked exists for exactly that question.
+            if (config != null)
+            {
+                var caps = config.GetEffectiveCaps();
+                var counts = CategoryCounts.Snapshot();
+                sb.AppendLine($"caps T/B/C/E: {counts.town}({caps.town}) {counts.boss}({caps.boss}) " +
+                              $"{counts.critter}({caps.critter}) {counts.enemy}({caps.enemy})   " +
+                              "(at cap is normal — that is the cap doing its job)");
+            }
+
+
+            // Biome-specific multipliers, printed ONLY when switched on — and warned about in one precise case.
+            // They REPLACE the general multipliers rather than stacking with them, and every biome starts at
+            // 1x. So turning the option on and tuning a few biomes silently drops every biome you did not touch
+            // to vanilla rates, which reads exactly like "no enemies spawn HERE but they're fine elsewhere".
+            // Narrow on purpose: only fires when this biome is still at 1x while the general dial is well above
+            // it, which is the trap and nothing else.
+            var biomeCfg = ModContent.GetInstance<BiomeSpawnConfig>();
+            if (biomeCfg?.UseBiomeSpecificModifiers == true && config != null)
+            {
+                BiomeSpawnRates here = biomeCfg.ResolveFor(p);
+                string name = biomeCfg.ActiveBiomeName(p) ?? "?";
+                sb.AppendLine($"biome modifiers: ON | here = {name} rate x{here?.SpawnRateMultiplier ?? 1f:0.##} " +
+                              $"max x{here?.MaxSpawnMultiplier ?? 1f:0.##} (these REPLACE the general dials)");
+                bool untuned = here != null && here.SpawnRateMultiplier <= 1f
+                               && config.SpawnRateMultiplier > 2f;
+                Check(!untuned, "biome modifiers",
+                      $"on, but {name} is still at 1x while the general dial is x{config.SpawnRateMultiplier:0.##} — this biome is running at vanilla rates",
+                      "/debugnpc spawninfo, and the Biome config page");
+            }
+            // Engine patches. A failure here means another mod rewrote the same method first and our anchor
+            // stopped matching — the root cause behind most "works alone, breaks with mod X" reports.
+            int failed = EngineILPatcher.PatchesFailed + EngineILPatcher.PatchesMissing;
+            Check(failed == 0, "patches", $"{failed} engine patch(es) did not apply", "client.log, search [MMM]");
+
+            // Arrays + immunity, from the same validation pass, reported separately because they fail for
+            // different reasons: a short NPC array is a cap-raise problem, a short immunity array is a
+            // weapons-can't-hit problem.
+            BuildValidationReport(out _, out int arrayBad, out int immuneBad);
+            Check(arrayBad == 0, "arrays", $"{arrayBad} NPC-array anomaly(s)", "/debugnpc validate");
+            Check(immuneBad == 0, "immunity", $"{immuneBad} hit-immunity array(s) too short", "/debugnpc immune");
+
+            // Other mods' arrays still sized for 200 — the content-mod compatibility check.
+            int stale = -1, checkedCount = 0;
+            try { ModArrayScanner.Build(out stale, out checkedCount, out _); } catch { stale = -1; }
+            Check(stale <= 0, "mod arrays", $"{stale} other-mod array(s) still sized 200", "/debugnpc modarrays");
+
+            // Gate telemetry. Refusals are normal at a ceiling; segment evictions never are.
+            long refused = SpawnGateTelemetry.TotalRefusals;
+            Check(SpawnGateTelemetry.EvictionsOfChainMembers == 0, "evictions",
+                  $"{SpawnGateTelemetry.EvictionsOfChainMembers} worm/boss segment(s) removed to make room, which unravels the body",
+                  "/debugnpc blocked");
+
+            sb.AppendLine($"patches {EngineILPatcher.PatchesApplied} ok/{failed} bad | arrays {Word(arrayBad)} | " +
+                          $"immunity {Word(immuneBad)} | mod arrays {(stale < 0 ? "?" : Word(stale))} ({checkedCount} checked) | " +
+                          $"caps enforced {refused}x, {SpawnGateTelemetry.Evictions} removed to fit");
+
+            if (warnings.Count == 0)
+                sb.AppendLine("=> nothing suspicious. If something is still wrong, say what you SEE and we'll pick a command.");
+            else
+                foreach (string w in warnings)
+                    sb.AppendLine("!! " + w);
+
+            return sb.ToString();
+        }
+
+        /// <summary>"OK" or the count, so a healthy row reads as words rather than a line of zeroes.</summary>
+        private static string Word(int bad) => bad == 0 ? "OK" : bad.ToString();
+
+       public static string BuildSpawnInfoReport(Player p)
         {
             var sb = new StringBuilder();
             sb.AppendLine($"vanilla base: defaultSpawnRate={DefaultSpawnRate()} defaultMaxSpawns={DefaultMaxSpawns()}");
@@ -171,6 +282,93 @@ namespace ManyMoreMobs
             Add(p.ZoneShadowCandle || Holding(p, 5322), "Shadow Candle", items?.ShadowCandle ?? 1f);
             Add(p.isNearFairy(), "Near Fairy", items?.Fairy ?? 1f);
             sb.AppendLine($"active spawn-item modifiers: {(active.Count == 0 ? "(none)" : string.Join(", ", active))}");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// <c>/debugnpc blocked</c> — the "why is nothing spawning?" readout: every gate that can stop a spawn,
+        /// with the live numbers and a one-line verdict naming whichever one is actually closed.
+        /// <para/>
+        /// Deliberately its OWN command and kept to seven lines. It started life appended to
+        /// <c>spawninfo</c>, which was a mistake: Terraria's chat has no scrollback, so the extra lines pushed
+        /// everything spawninfo had already said off the top of the screen. Anything added here has to earn its
+        /// row against that limit.
+        /// <para/>
+        /// The multipliers above this only say what the dials are SET to. They are the first thing anyone reads
+        /// when enemies stop appearing, and they are almost never the answer — a spawn can be refused by
+        /// vanilla's density budget, by one of our four category ceilings, or by a full array, and until now
+        /// none of those were visible from in-game or from a log. That is why "no enemies spawn" reports have
+        /// been undiagnosable: the mod refuses spawns silently and by design.
+        /// <para/>
+        /// Note the deliberate mismatch on the first two lines. Vanilla's density budget sums npcSlots, and
+        /// worm body segments declare npcSlots = 0f, so a whole worm counts as just its head there while
+        /// occupying twenty array slots against our Enemy ceiling. Seeing both numbers side by side is the
+        /// point: vanilla reading nearly empty while Enemy sits at its cap IS that disagreement, on screen.
+        /// </summary>
+        public static string BuildBlockedReport(Player p)
+        {
+            var sb = new StringBuilder();
+
+            int lastMax = SpawnRateMultiplier.OutMax;
+            bool densityClosed = SpawnRateMultiplier.CapturedTick >= 0 && p.nearbyActiveNPCs >= lastMax;
+            sb.AppendLine($"[MMM] vanilla density {p.nearbyActiveNPCs:0.#}/{lastMax} {(densityClosed ? "SATURATED" : "open")}" +
+                          $"  |  npcSlots-based, so worm segments count 0");
+
+            int cap = EngineState.NpcCap;
+            int used = 0;
+            for (int i = 0; i < cap && i < Main.npc.Length; i++)
+                if (Main.npc[i] != null && Main.npc[i].active) used++;
+            sb.AppendLine($"array {used}/{cap} used, {cap - used} free{(used >= cap ? "  FULL" : "")}");
+
+            var config = ModContent.GetInstance<ManyMoreMobsConfig>();
+            if (config == null)
+            {
+                sb.AppendLine("ceilings: config unavailable.");
+                return sb.ToString();
+            }
+
+            var caps = config.GetEffectiveCaps();
+            var counts = CategoryCounts.Snapshot();
+            bool bossEnforced = config.CapMode == NpcCapMode.Expanded;
+            // One line for all four: chat has no scrollback, so a full-width row beats four short ones.
+            string Cell(string name, int have, int limit, bool enforced)
+                => $"{name} {have}/{limit}{(!enforced ? "(off)" : have >= limit ? " CAP!" : "")}";
+            sb.AppendLine($"ceilings ({config.CapMode}): " + string.Join("  ", new[]
+            {
+                Cell("Town", counts.town, caps.town, true),
+                Cell("Boss", counts.boss, caps.boss, bossEnforced),
+                Cell("Critter", counts.critter, caps.critter, true),
+                Cell("Enemy", counts.enemy, caps.enemy, true),
+            }));
+
+            sb.AppendLine($"refused {SpawnGateTelemetry.TotalRefusals} (T{SpawnGateTelemetry.RefusedTown} " +
+                          $"B{SpawnGateTelemetry.RefusedBoss} C{SpawnGateTelemetry.RefusedCritter} " +
+                          $"E{SpawnGateTelemetry.RefusedEnemy} type{SpawnGateTelemetry.RefusedPerTypeCap}) " +
+                          $"last {SpawnGateTelemetry.Ago(SpawnGateTelemetry.LastRefusalTick)}");
+
+            string evicted = SpawnGateTelemetry.LastEvictedType >= 0
+                ? $", last type {SpawnGateTelemetry.LastEvictedType} {SpawnGateTelemetry.Ago(SpawnGateTelemetry.LastEvictionTick)}"
+                : "";
+            sb.AppendLine($"evicted {SpawnGateTelemetry.Evictions} ({SpawnGateTelemetry.EvictionsOfChainMembers} segments — " +
+                          $"each unravels a whole body), {SpawnGateTelemetry.EvictionsFailed} found nothing{evicted}");
+
+            // Verdict, most-specific first. Enemy is checked before the others because it is the ceiling that
+            // ordinary spawns actually hit; a full array is reported last because it only bites guaranteed ones.
+            string verdict;
+            if (counts.enemy >= caps.enemy)
+                verdict = $"Enemy is at its ceiling ({counts.enemy}/{caps.enemy}) — ordinary enemy spawns are being refused. " +
+                          (p.nearbyActiveNPCs < lastMax * 0.5f
+                              ? "Vanilla still reads this area as uncrowded, so something is holding slots without costing npcSlots (worm segments do exactly that)."
+                              : "");
+            else if (densityClosed)
+                verdict = "vanilla's own density budget is full — raise MaxSpawnMultiplier, or this is simply a crowded area.";
+            else if (counts.critter >= caps.critter)
+                verdict = $"Critter is at its ceiling ({counts.critter}/{caps.critter}) — critters are refused, enemies are not.";
+            else if (used >= cap)
+                verdict = "the array is full — every further guaranteed spawn evicts something.";
+            else
+                verdict = "nothing is blocking spawns right now.";
+            sb.AppendLine($"verdict: {verdict}");
             return sb.ToString();
         }
 
@@ -432,8 +630,17 @@ namespace ManyMoreMobs
 
         /// <summary>Checks every NPC-indexed array against the applied cap. <paramref name="anomalies"/> = problem count.</summary>
         public static string BuildValidationReport(out int anomalies)
+            => BuildValidationReport(out anomalies, out _, out _);
+
+        /// <summary>
+        /// As <see cref="BuildValidationReport(out int)"/>, but splitting the total into the two groups the
+        /// triage readout reports separately: NPC-slot arrays, and the hit-immunity arrays. They fail for
+        /// different reasons and point at different fixes, so a single number hides which one is wrong.
+        /// </summary>
+        public static string BuildValidationReport(out int anomalies, out int arrayAnomalies, out int immunityAnomalies)
         {
-            anomalies = 0;
+            arrayAnomalies = 0;
+            immunityAnomalies = 0;
             var sb = new StringBuilder();
             int cap = MaxNpcCapRaise.AppliedCap;
             int len = Main.npc.Length;
@@ -442,7 +649,7 @@ namespace ManyMoreMobs
             if (len < cap + 1)
             {
                 sb.AppendLine("  !! Main.npc is shorter than AppliedCap+1");
-                anomalies++;
+                arrayAnomalies++;
             }
 
             // Instanced-globals (_globals) length across active NPCs — this is what crashed world save.
@@ -465,7 +672,7 @@ namespace ManyMoreMobs
                 dist[g] = dist.TryGetValue(g, out int c) ? c + 1 : 1;
                 if (g >= 0 && g < expected)
                 {
-                    anomalies++;
+                    arrayAnomalies++;
                     if (offenders.Count < 20)
                         offenders.Add($"slot {i}: type {n.type} '{SafeName(n)}' _globals.Length={g} (expected {expected})");
                 }
@@ -475,7 +682,7 @@ namespace ManyMoreMobs
                 sb.AppendLine("  !! " + o);
 
             // Companion arrays indexed by NPC slot.
-            CheckArray(sb, ref anomalies, "NPC.lazyNPCOwnedProjectileSearchArray", NPC.lazyNPCOwnedProjectileSearchArray?.Length ?? -1, cap);
+            CheckArray(sb, ref arrayAnomalies, "NPC.lazyNPCOwnedProjectileSearchArray", NPC.lazyNPCOwnedProjectileSearchArray?.Length ?? -1, cap);
 
             uint[][] perId = Projectile.perIDStaticNPCImmunity;
             if (perId != null)
@@ -489,7 +696,7 @@ namespace ManyMoreMobs
                     if (a.Length < cap) bad++;
                 }
                 sb.AppendLine($"perIDStaticNPCImmunity: {perId.Length} types, inner len min={(min == int.MaxValue ? 0 : min)} max={max}, {bad} < cap");
-                if (bad > 0) anomalies += bad;
+                if (bad > 0) immunityAnomalies += bad;
             }
 
             int projBad = 0;
@@ -499,7 +706,7 @@ namespace ManyMoreMobs
                 if (arr != null && arr.Length < cap) projBad++;
             }
             sb.AppendLine($"projectiles localNPCImmunity < cap: {projBad}/{Main.projectile.Length}");
-            if (projBad > 0) anomalies += projBad;
+            if (projBad > 0) immunityAnomalies += projBad;
 
             int plBad = 0;
             for (int i = 0; i < Main.player.Length; i++)
@@ -508,9 +715,10 @@ namespace ManyMoreMobs
                 if (arr != null && arr.Length < cap) plBad++;
             }
             sb.AppendLine($"players meleeNPCHitCooldown < cap: {plBad}");
-            if (plBad > 0) anomalies += plBad;
+            if (plBad > 0) immunityAnomalies += plBad;
 
-            sb.AppendLine($"TOTAL anomalies: {anomalies}");
+            anomalies = arrayAnomalies + immunityAnomalies;
+            sb.AppendLine($"TOTAL anomalies: {anomalies} (arrays {arrayAnomalies}, immunity {immunityAnomalies})");
             return sb.ToString();
         }
 

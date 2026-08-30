@@ -12,7 +12,7 @@ namespace ManyMoreMobs
     {
         public override string Command => "debugnpc";
         public override string Usage =>
-            "/debugnpc <version|counts|dump|dumpall|validate|modarrays|spawninfo|event|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
+            "/debugnpc <info|version|counts|dump|dumpall|validate|modarrays|spawninfo|blocked|event|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
         public override string Description => "Many More Mobs debug: inspect counts/state/spawn rate, validate arrays, test spawning. Full reports go to ManyMoreMobs-state.log (on the SERVER's machine in multiplayer; the summary still comes back to you in chat).";
 
         public override CommandType Type => CommandType.Chat;
@@ -27,6 +27,17 @@ namespace ManyMoreMobs
 
             switch (args[0].ToLower())
             {
+                // The triage command — the one to give a non-technical reporter. Prints OK/WARN per subsystem
+                // and names the specialised command to run next. See EngineDiagnostics.BuildInfoReport.
+                case "info":
+                {
+                    string report = EngineDiagnostics.BuildInfoReport(caller.Player);
+                    MmmLog.Dump("/debugnpc info", report);
+                    foreach (string line in report.TrimEnd().Split('\n'))
+                        caller.Reply(line.TrimEnd());
+                    break;
+                }
+
                 case "counts":
                     PrintCounts(caller);
                     break;
@@ -58,6 +69,17 @@ namespace ManyMoreMobs
                     caller.Reply(problems == 0
                         ? "[MMM] census written to ManyMoreMobs-state.log — no anomalies."
                         : $"[MMM] census written to ManyMoreMobs-state.log — {problems} ANOMALIES listed there.");
+                    break;
+                }
+
+                // Separate from spawninfo on purpose — see EngineDiagnostics.BuildBlockedReport.
+                case "blocked":
+                case "blockinfo":
+                {
+                    string report = EngineDiagnostics.BuildBlockedReport(caller.Player);
+                    MmmLog.Dump("/debugnpc blocked", report);
+                    foreach (string line in report.TrimEnd().Split('\n'))
+                        caller.Reply(line.TrimEnd());
                     break;
                 }
 
