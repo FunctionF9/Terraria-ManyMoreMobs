@@ -9,7 +9,7 @@ If you would prefer vanilla 200-limit, a Default mode leaves the regular 200 ent
 This mod was built with use of [b]AI Assistance[/b]. 
 The mod has been  testing has been limited, mostly solo tested locally.
 The mod patches the game engine at a low level and is still very much in [b]early access[/b]!
-Expect rough edges, please play on a [b]fresh world, with a fresh character[/b], please report any bugs/oddities you find, feedback would really help prioritize next fixes.
+Expect rough edges, please play on a [b]fresh world, with a fresh character[/b], please report any bugs/oddities you find, feedback is greatly appreciated!
 [b]Github:[/b] https://github.com/FunctionF9/Terraria-ManyMoreMobs
 
 
@@ -108,3 +108,4 @@ The four caps decide how that budget gets split:
 [/list]
 This list will grow and shrink as playtesters report issues - thank you for the feedback!
 [quote=tModLoader ManyMoreMobs]
+Developed By FunctionF9[/quote]
