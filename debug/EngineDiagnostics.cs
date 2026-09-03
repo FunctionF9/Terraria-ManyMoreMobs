@@ -168,6 +168,19 @@ namespace ManyMoreMobs
             sb.AppendLine($"[MMM] Many More Mobs {version} | cap {cap} {config?.CapMode.ToString() ?? "?"} | " +
                           $"early raise {(EarlyCapRaise.Applied ? "yes" : "NO")} | {activeNpcs} NPCs active");
 
+            // A config mismatch between this client and the server mis-sizes OTHER mods' NPC arrays, and the
+            // resulting crash or dead spawn loop names them, never us. It is the single least diagnosable
+            // failure this mod can produce, so it goes first and it goes in plain language — a player reading
+            // this line should be able to fix it without understanding any of the rest.
+            Check(MaxNpcCapRaise.CapMismatch == null, "Cap config", MaxNpcCapRaise.CapMismatch ?? "",
+                  "your cap settings differ from the server's; set Max NPC Total and Cap Mode to match it and rejoin");
+
+            // If registration aborted, the patch counts below are describing a PARTIAL engine and every other
+            // line in this report is measuring something half-built. Say so before any of them are read.
+            Check(EngineILPatcher.RegistrationAborted == null, "Patch registration",
+                  EngineILPatcher.RegistrationAborted ?? "",
+                  "patch registration stopped partway, so the engine is only partly widened - please report this");
+
             // Caps are reported as a FACT, never as a warning.
             //
             // Being at the Enemy ceiling is this mod's normal steady state — at the default 200x rate the cap

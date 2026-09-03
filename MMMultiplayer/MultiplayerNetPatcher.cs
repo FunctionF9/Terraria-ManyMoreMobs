@@ -78,8 +78,15 @@ namespace ManyMoreMobs.MMMultiplayer
             // widening it is a cap correctness fix rather than a network one and belongs to EngineILPatcher,
             // unconditionally. If both claimed it, whichever patcher happened to load first would win — and
             // when that was the multiplayer one, single-player behaviour would start depending on the
-            // ExperimentalMultiplayerFixes toggle. (NPC.SpawnBoss also opens `int num = 200;`, but both
-            // branches assign before any read, so that one is a dead store and needs nobody.)
+            // ExperimentalMultiplayerFixes toggle.
+            //
+            // NPC.SpawnBoss is the one method both patchers legitimately touch, and an earlier version of
+            // this comment got it wrong: it claimed `int num = 200;` there was a dead store needing nobody.
+            // It is not — `if (num == 200) return;` reads it, and a boss landing in slot exactly 200 was
+            // being abandoned before its target and despawn timer were set. EngineILPatcher's
+            // Patch_SpawnBossSentinel owns that literal and the `== 200` read; this patcher owns only the
+            // netMode-guarded broadcast. Each skips the other's sites by testing for a Main.netMode read
+            // within six real instructions, so the split is order-independent.
             var targets = new (Type type, string name, BindingFlags flags, bool sentinels)[]
             {
                 // Old One's Army gate spawns — every wave enemy AND the Dark Mage / Ogre minibosses.
@@ -98,6 +105,11 @@ namespace ManyMoreMobs.MMMultiplayer
                 // the lot: every naturally spawned enemy goes through it, so without it a client only learns
                 // about a high-slot spawn once its AI happens to set netUpdate.
                 (typeof(NPC), "SpawnNPC", BindingFlags.Public | BindingFlags.Static, false),
+                // The four Lunar Pillars. They are in NPCID.Sets.ShouldBeCountedAsBoss, so NpcCategorizer
+                // puts them in the low zone and these guards normally pass -- this only bites if the low zone
+                // is saturated when the apocalypse triggers. Patched for completeness rather than for a known
+                // symptom; both of the method's literals are these two guards.
+                (typeof(WorldGen), "TriggerLunarApocalypse", BindingFlags.Public | BindingFlags.Static, false),
             };
 
             foreach (var (type, name, flags, sentinels) in targets)
@@ -363,6 +375,17 @@ namespace ManyMoreMobs.MMMultiplayer
                     throw new Exception("bound literal 200 not found");
                 Widen(c);
             });
+
+            // ── packet 56, town NPC given name / variation ──────────────────────────────────────────────
+            // `if (num93 >= 0 && num93 < 200)` gates a town NPC's GivenName and townNpcVariationIndex sync.
+            // Latent rather than active, because town NPCs are zoned low -- but there are two ways in. An NPC
+            // that Transforms into a town NPC (a slime becoming a Copper Town Slime) sits in the high zone
+            // until SlotRezoner's next sweep, and a packet 56 fired in that window is dropped by the server;
+            // that one self-heals. The one that does not is a saturated low zone, where a town NPC stays high
+            // permanently and its given name never reaches clients at all -- they see a blank or stale name
+            // for the rest of the session.
+            // `GivenName` appears exactly once in the whole of GetData, so it is an exact anchor.
+            GuardBefore("set_GivenName", "packet 56 — town NPC name sync");
 
             // ── packet 8, initial world sync on join ────────────────────────────────────────────────────
             // `for (i = 0; i < 200; i++) if (Main.npc[i].active) TrySendData(23, ...)` — the bulk NPC handoff

@@ -7,7 +7,7 @@
 | True Excalibur | 983 | untested | Highest vanilla swing pierce at 6. |
 | Excalibur | 982 | untested | |
 | True Night's Edge | 973 | untested | aiStyle 191, no `usesOwnerMeleeHitCD` unlike its siblings. |
-| Flails | — | clean (0.6) | `AI_015_Flails` / `AI_015_Flails_Old` patched. |
+| Flails | — | clean (0.6) | `AI_015_Flails` patched. (`AI_015_Flails_Old` is an unreachable leftover in the engine — nothing calls it.) |
 | Zenith | — | untested | `Player.GetZenithTarget` is patched; behaviour at 750 unverified. |
 | Solar Eruption | — | untested | |
 | Yoyos | — | untested | |

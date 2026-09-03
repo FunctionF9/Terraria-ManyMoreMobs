@@ -36,8 +36,14 @@ namespace ManyMoreMobs
         public override ConfigScope Mode => ConfigScope.ServerSide;
 
         // Let a single true-melee swing (sword/whip) hit EVERY enemy in its arc instead of just one per frame
-        // (each enemy still respects its own per-NPC hit cooldown). Affects swung weapons, not projectiles.
-        // Defaults ON. Applied via IL in EngineILPatcher (Player.ItemCheck attackCD gate). on = mod default.
+        // (each enemy still respects its own per-NPC hit cooldown). Defaults ON.
+        //
+        // Two implementations, because the engine gates the two melee families differently and this setting
+        // used to reach only one of them:
+        //   item-hitbox melee   -> EngineILPatcher suppresses Player.ApplyAttackCooldown() (the attackCD gate)
+        //   swing-PROJECTILE    -> SwingCooldownDrain runs the per-enemy cooldown decrement that vanilla skips
+        //                          for noMelee items. Projectile.Damage never reads attackCD, so the IL half
+        //                          did nothing for Night's Edge / Terra Blade / Horseman's Blade etc.
         [Header("Melee")]
         [DefaultValue(true)]
         public bool MeleeHitsAllInSwing { get; set; } = true;

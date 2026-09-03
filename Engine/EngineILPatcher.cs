@@ -45,9 +45,47 @@ namespace ManyMoreMobs
         // log a skipped site without aborting the whole patch.
         internal static Mod ModRef;
 
+        /// <summary>
+        /// Registers every IL patch, and cannot take the mod down with it.
+        /// <para/>
+        /// <b>Why the guard exists.</b> <see cref="Apply"/> already try/catches the patching step, so a
+        /// manipulator that throws only loses its own patch. But the <c>MethodBase</c> argument is evaluated
+        /// BEFORE <c>Apply</c> is entered, so anything thrown while RESOLVING a method never reaches that
+        /// catch. <c>GetMethod(name, flags)</c> throws <c>AmbiguousMatchException</c> the moment an engine
+        /// update adds an overload to any of the ~80 names resolved here — which is not hypothetical, it is
+        /// exactly what <c>NPC.StrikeNPC</c> does today. This runs inside <c>OnModLoad</c>, so an escape does
+        /// not skip one patch: it fails the whole mod's load.
+        /// <para/>
+        /// Catching here degrades that to "the patches registered so far stay, the rest do not, and the log
+        /// and <c>/debugnpc info</c> both say so loudly." A partly-patched engine is a bad state, but it is a
+        /// reportable one, and it is strictly better than a mod that will not load at all.
+        /// </summary>
         public static void ApplyAll(Mod mod)
         {
             ModRef = mod;
+            try
+            {
+                ApplyAllCore(mod);
+            }
+            catch (Exception e)
+            {
+                RegistrationAborted = e.GetType().Name + ": " + e.Message;
+                PatchesFailed++;
+                Record("registration aborted partway");
+                mod.Logger.Error(
+                    $"[MMM] PATCH REGISTRATION ABORTED partway through: {e}. Every patch registered before " +
+                    "this point is active and the rest are not, so the engine is only partly widened. This " +
+                    "usually means a tModLoader update changed a method this mod resolves by name. Please " +
+                    "report this log.");
+            }
+        }
+
+        /// <summary>Non-null if <see cref="ApplyAll"/> aborted before finishing; surfaced by
+        /// <c>/debugnpc info</c> so a player can report it without finding the log.</summary>
+        internal static string RegistrationAborted { get; private set; }
+
+        private static void ApplyAllCore(Mod mod)
+        {
 
             // Slot-zoning fully replaces GetAvailableNPCSlot (Town/Boss low, Enemy/Critter high), so no IL
             // patch is needed there — the detour decides placement and search range itself.
@@ -118,12 +156,17 @@ namespace ManyMoreMobs
             // letting them reach high slots crashes world SAVE (risking corruption). High-slot NPCs are
             // transient (enemies/critters/bosses) and intentionally not persisted, so confining save/load
             // to vanilla slots is correct and keeps worlds safe.
+            // SafeGetMethod, not GetMethod: these two resolve a tModLoader-INTERNAL type, so unlike the
+            // vanilla engine we cannot check the decompile for overloads, and tModLoader's own internals move
+            // between builds far more freely than Terraria's. An AmbiguousMatchException here would be caught
+            // by ApplyAll's guard, but that guard abandons every remaining registration — resolving safely
+            // means one unresolvable name costs one patch instead of all the ones after it.
             Type worldIO = typeof(Main).Assembly.GetType("Terraria.ModLoader.IO.WorldIO");
             Apply(mod, "WorldIO.SaveNPCs",
-                worldIO?.GetMethod("SaveNPCs", BindingFlags.NonPublic | BindingFlags.Static),
+                SafeGetMethod(worldIO, "SaveNPCs", BindingFlags.NonPublic | BindingFlags.Static),
                 Patch_ForceVanilla200);
             Apply(mod, "WorldIO.LoadNPCs",
-                worldIO?.GetMethod("LoadNPCs", BindingFlags.NonPublic | BindingFlags.Static),
+                SafeGetMethod(worldIO, "LoadNPCs", BindingFlags.NonPublic | BindingFlags.Static),
                 Patch_ForceVanilla200);
 
             // Safety net: wrap NPCLoader.SavesAndLoads so its instanced-global enumeration can never crash
@@ -136,8 +179,23 @@ namespace ManyMoreMobs
             // coupled local arrays), so replacing every `ldc.i4 200` with EngineState.NpcCap is safe.
             // (Town NPCs and bosses live in 0-199, so vanilla combat already reaches them; these widen the
             // reach to the enemies/critters that live in slots 200+.)
-            PatchMethod(mod, typeof(Player), "UpdateMeleeHitCooldowns");   // melee re-hit (decrement cooldown for high slots)
-            PatchMethod(mod, typeof(Player), "ResetMeleeHitCooldowns");    // melee cooldown reset on death
+            // These two are load-bearing for six vanilla swords, and the second one's comment used to say
+            // "reset on death", which is wrong and would mislead anyone triaging from here.
+            //
+            // meleeNPCHitCooldown is written UNBOUNDED from two places (Player.ProcessHitAgainstNPC and
+            // Projectile.Damage, via SetMeleeHitCooldown), and read as the hit gate in Projectile.Damage. It
+            // is cleared by exactly these two loops. UpdateMeleeHitCooldowns has ONE call site, and the block
+            // it sits in returns early for any `noMelee` item -- so for a swing sword the Reset below, called
+            // once per swing from ItemCheck_StartActualUse, is the ONLY thing that ever clears the array.
+            //
+            // If Reset's bound is ever left at 200, then the first time a usesOwnerMeleeHitCD sword hits an
+            // enemy above slot 199 that entry is stuck forever and the enemy becomes permanently immune to
+            // every sword in that family -- Night's Edge, Excalibur, True Excalibur, True Night's Edge, Terra
+            // Blade, Horseman's Blade -- for the rest of the session, with no crowding needed. Breaker Blade
+            // keeps working because it has no projectile and does reach UpdateMeleeHitCooldowns. That is the
+            // exact signature of a standing bug report, so if these two ever stop matching, look here first.
+            PatchMethod(mod, typeof(Player), "UpdateMeleeHitCooldowns");   // per-frame decrement, melee items only
+            PatchMethod(mod, typeof(Player), "ResetMeleeHitCooldowns");    // per-SWING reset (ItemCheck_StartActualUse)
             PatchMethod(mod, typeof(Player), "CollideWithNPCs");           // player contact/touch damage
             PatchMethod(mod, typeof(Player), "JumpMovement");             // slime-mount bounce damage
             PatchMethod(mod, typeof(Player), "DashMovement");            // dash damage: Shield of Cthulhu + Solar Flare (both its 200s are NPC loops)
@@ -206,6 +264,599 @@ namespace ManyMoreMobs
             // Statue / mechanism spawn limits: MechSpawn counts nearby same-type NPCs to cap statue output.
             // Blind to high slots it undercounts, letting statues flood the world past their vanilla limit.
             PatchNpcLoops(mod, typeof(NPC), "MechSpawn");
+
+            // ── Enemy AI proper (0.7.8.0). The two largest remaining gap clusters, and the last of the file
+            //    to be done deliberately: the plan called for them LAST because they run on every enemy every
+            //    tick, so their cost scales with the cap rather than being paid once.
+            //
+            // Both are routed through the npc-loop heuristic rather than a blanket pass, and NOT because
+            // blanket is merely untidy here — it is wrong. AI_003_Fighters carries `Dust.NewDust(..., 200, ...)`
+            // alpha arguments and two `= 200` assignments (an alpha for type 466 and a timer for type 291);
+            // a blanket pass would rewrite all of those to 750 and corrupt the visuals of enemies that are
+            // otherwise fine. The heuristic only rewrites a bound with a BACKWARD branch, which no assignment
+            // or call argument has.
+            //
+            // Checked before registering, because the heuristic's own hazard inside Terraria.NPC is that a
+            // 200-bounded DUST loop touching an NPC field would be widened to 750 particles:
+            //   · VanillaAI_Inner  — 29 `< 200` loops, and all 29 are NPC scans. No dust loop, no other shape.
+            //   · AI_003_Fighters  —  5 `< 200` loops, likewise all NPC scans.
+            // Every one of the 34 bodies references a member declared on Terraria.NPC (`type`, `aiStyle`,
+            // `ai[]`), so none of them fails the way NPCUtils.SearchForTarget did. The counts in the log are
+            // the check that this stayed true: expect 29 and 5.
+            //
+            // What is actually broken without this:
+            //   · the same-type SEPARATION loops ("if another of my type is within `width`, push apart") see
+            //     nobody at all above slot 199, so same-type enemies converge into one spot instead of
+            //     spreading — Twins, and the flying-fighter family;
+            //   · type 415 decides whether to HIDE itself by looking for its type-416 partner, so it draws
+            //     when it should not;
+            //   · several add-counting scans (type 115, 125/126, 264, aiStyle 52) read zero and re-summon.
+            //
+            // The MP patcher also hooks VanillaAI_Inner, with Patch_ServerBroadcastGuards. No conflict: that
+            // matcher only takes a literal with a Main.netMode read before it and a NetMessage.SendData call
+            // after it, which is never true of a loop bound, and this one only takes backward-branch bounds.
+            PatchNpcLoops(mod, typeof(NPC), "VanillaAI_Inner");
+            PatchNpcLoops(mod, typeof(NPC), "AI_003_Fighters");
+
+            // ── The remaining named gaps (0.7.8.0). Every one of these methods is blanket-UNSAFE, which is
+            //    why they were left: each carries 200s that are not slot bounds and would do real damage if
+            //    rewritten. Literal inventory taken from the decompile, per method:
+            //
+            //      checkDead              1 loop  · `Main.maxTilesY - 200` (a tile scan floor) + two netMode
+            //                                       broadcast guards owned by the multiplayer patcher
+            //      StrikeNPC              1 loop  · none at all (blanket would in fact be safe; routed the
+            //                                       same way anyway so one rule covers the whole group).
+            //                                       NOTE: resolved separately below — it has two overloads.
+            //      SpawnNPC               2 loops · 15 others — spawn-depth checks, NPC type ids that happen
+            //                                       to be 199/200/201, `Main.rand.Next(200)`, `NewNPC(..., 200)`
+            //                                       and the `int newNPC = 200` sentinel that already has its
+            //                                       own anchored patch
+            //      DrawNPCDirect_Inner    2 loops · 13 others, all colour channels and alphas
+            //      Wiring.HitWireSingle   2 loops · six `CheckMech(i, j, 200)` (a WIRE-PULSE budget, nothing
+            //                                       to do with slots) plus two `= 200` counters
+            //      AnyHelpfulFairies      1 loop  · none
+            //
+            // The loop-bound heuristic is immune to all of that by construction: it only rewrites a literal
+            // that is the bound of a backward branch, and an argument, an assignment and a colour channel are
+            // none of those.
+            //
+            // What each one costs while unpatched:
+            //   · Wiring.HitWireSingle — the King and Queen statue teleports collect their candidate town
+            //     NPCs here. Zoning normally keeps town NPCs low so this is latent, but it is the exact shape
+            //     that bites the moment the low zone is full.
+            //   · SpawnNPC — the first loop is the Moon-event slot budget (it counts pillar and miniboss
+            //     types to decide how much more may spawn); reading zero makes the budget wrong in the
+            //     permissive direction.
+            //   · checkDead — the Destroyer picks the segment nearest the player to drop loot from; blind, it
+            //     drops from wherever the dying segment happened to be.
+            //   · StrikeNPC — Wall of Flesh: hitting one half must run HitEffect on both (types 113/114).
+            //   · DrawNPCDirect_Inner — two draw-time partner lookups (the type-397 tether, and the Twins
+            //     pair for the Mech Queen's centre point), so a connector renders detached or not at all.
+            // A regression this mod created, not a vanilla gap — and the only one of its kind found so far.
+            //
+            //     int num9 = (int)ai[2];
+            //     if (num9 < 0 || num9 >= 200) { num9 = FindFirstNPC(134); ai[2] = num9; netUpdate = true; }
+            //
+            // We widened FindFirstNPC, so it now legitimately RETURNS a slot at or above 200 — which this
+            // guard, still on vanilla's bound, then rejects. It re-runs the search, gets the same high slot
+            // back, stores it, and sets netUpdate. Every tick. It is not a feature quietly failing: it is a
+            // permanent re-search that also flags a network update on every frame for as long as the state
+            // holds, so in multiplayer it is a broadcast the server did not ask for.
+            //
+            // Narrow in practice (it is behind IsMechQueenUp, the Twins-fused Mech Queen), which is exactly
+            // why it needs to be written down — nobody would reproduce this from a bug report. Confirmed
+            // against the IL: one int gate, no float slot gate, and the `Main.npc[num9]` that proves it is a
+            // slot sits 18 instructions after the literal.
+            Apply(mod, "NPC.AI_005_EaterOfSouls (FindFirstNPC result gate)",
+                typeof(NPC).GetMethod("AI_005_EaterOfSouls", BindingFlags.NonPublic | BindingFlags.Instance),
+                il => Patch_TargetSlotGates(il, expectInt: 1, expectFloat: 0));
+
+            // Coin Loss Revenge — another NewNPC SUCCESS SENTINEL, the family this mod creates rather than
+            // inherits. We widen NewNPC's failure return from 200 to the cap, so every caller still testing
+            // `< 200` now reads a perfectly good high-zone slot as a failure:
+            //
+            //     int num = NPC.NewNPC(...);  NPC nPC = Main.npc[num];  ... nPC.life = ...;
+            //     if (num < 200) { if (Main.netMode == 0) nPC.moneyPing(_location); else SendData(23, ...); }
+            //
+            // The enemy IS spawned and its life IS set — only the notification is skipped. Single-player loses
+            // the money ping that tells you the marker paid out; on a server the spawn is never synced, so the
+            // revenge enemy exists only server-side and clients fight something they cannot see. Since our
+            // allocator fills enemies from the top down, `num < 200` is false essentially always.
+            //
+            // Not owned by the multiplayer patcher despite the SendData: its matcher requires a Main.netMode
+            // read BEFORE the literal, and here the netMode read comes after. Exactly one 200 in the method,
+            // and one in the whole type.
+            Apply(mod, "CoinLossRevengeSystem.RevengeMarker.SpawnEnemy (NewNPC success sentinel)",
+                typeof(Main).Assembly
+                    .GetType("Terraria.GameContent.CoinLossRevengeSystem+RevengeMarker")
+                    ?.GetMethod("SpawnEnemy", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance),
+                il => Patch_TargetSlotGates(il, expectInt: 1, expectFloat: 0));
+
+            PatchNpcLoops(mod, typeof(NPC), "checkDead");
+            // AUDIT-SKIP: NPC.TargetClosestUpgraded — unreachable, and superseded. Zero call sites in the
+            // whole assembly. Its 0-199 scan looks for type 548, the Old One's Army crystal, which is what
+            // makes it read like an event-breaking gap — but the live crystal search is
+            // NPCUtils.TargetClosestOldOnesInvasion -> SearchForTarget (SearchFilters.OnlyCrystal), patched
+            // below. This looks like an earlier draft vanilla replaced with the NPCUtils family and never
+            // deleted. It is `public`, so a mod could in principle call it; nothing observed does, and the one
+            // job it would be called for is already covered by the method that actually runs.
+
+            // StrikeNPC canNOT go through PatchNpcLoops, and the reason is a trap worth spelling out.
+            //
+            // There are TWO StrikeNPC overloads: `public int StrikeNPC(HitInfo, bool, bool)` — the real one,
+            // holding the Wall of Flesh loop — and `internal int StrikeNPC(int, float, int, bool, bool, bool)`,
+            // a three-line legacy shim that just forwards to it. PatchNpcLoops resolves by NAME ONLY with
+            // Public|NonPublic|Instance|Static, and `internal` IS NonPublic, so both overloads match and
+            // GetMethod throws AmbiguousMatchException. That is caught and logged, so the failure is loud —
+            // but the patch simply never happens, and every comment in this file said it did.
+            //
+            // Worth noting how easily this hid: grepping the decompile for `public .*StrikeNPC(` and
+            // `private .*StrikeNPC(` finds exactly one declaration and looks conclusive. The second overload
+            // is neither. Match on the parameter list, not on the accessibility keyword.
+            //
+            // Resolved by shape rather than by a typeof(NPC.HitInfo) reference so this does not depend on the
+            // nested type's visibility, and so an added overload changes the count instead of silently
+            // rebinding us to the wrong method.
+            MethodInfo strikeNpc = typeof(NPC)
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(m => m.Name == "StrikeNPC"
+                            && m.GetParameters().Length == 3
+                            && m.GetParameters()[0].ParameterType.Name == "HitInfo")
+                .ToArray() is { Length: 1 } hit ? hit[0] : null;
+
+            if (strikeNpc == null)
+                mod.Logger.Error("[MMM] NPC.StrikeNPC(HitInfo, bool, bool) not resolvable; " +
+                                 "Wall of Flesh hit propagation not widened.");
+            else
+                Apply(mod, "NPC.StrikeNPC (npc loops)", strikeNpc, Patch_NpcLoops);
+            PatchNpcLoops(mod, typeof(NPC), "SpawnNPC");
+            PatchNpcLoops(mod, typeof(NPC), "AnyHelpfulFairies");
+            PatchNpcLoops(mod, typeof(Main), "DrawNPCDirect_Inner");
+            PatchNpcLoops(mod, typeof(Wiring), "HitWireSingle");
+
+            // ── Magic surface (0.7.7.2). Found by audit; each literal count checked against the decompile. ──
+
+            // Spectre Mask's damage set bonus is completely inert. ghostHurt is magic-only by construction
+            // (`if (!magic || damage <= 0) return;`) and scans 0-199 for a bolt target, so with every enemy
+            // above 199 it finds nothing and no spectre bolt is ever spawned. Three `200` literals and ALL
+            // THREE must move together: `new int[200]`, a second discarded `new int[200]`, and the loop bound
+            // — the two counters index that array with no cap, so widening the loop alone would turn a dead
+            // set bonus into an IndexOutOfRange. The blanket manipulator happens to be exactly right here.
+            Apply(mod, "Projectile.ghostHurt (Spectre Mask set bonus)",
+                typeof(Projectile).GetMethod(nameof(Projectile.ghostHurt), BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Life Drain never charges mana. Payment is deliberately deferred from the item to the projectile
+            // (Player.ItemCheck_PayMana special-cases item 3006 and only CHECKS), and the projectile pays only
+            // when its 0-199 scan finds an NPC it is touching. Above 199 it never does, so the weapon channels
+            // free forever. One literal, the loop bound.
+            Apply(mod, "Projectile.AI_185_LifeDrain (mana charge)",
+                typeof(Projectile).GetMethod("AI_185_LifeDrain", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Dryad's Blessing never applies Dryad's Bane (the damage-amp mark) to enemies. The town-NPC half
+            // of the same loop still works only because town NPCs are zoned low. Two literals; the other is a
+            // float `/ 200f` radius lerp, which SafeLdcI4 cannot match, so blanket touches only the bound.
+            Apply(mod, "Projectile.AI_111_DryadsWard (Dryad's Bane)",
+                typeof(Projectile).GetMethod("AI_111_DryadsWard", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Betsy's flame breath validates her slot as `ai[1] > 200f` — float, so no int patch could see it.
+            // Boss zoning normally keeps her under 200, so this only bites when the low zone overflows; the
+            // same conditional shape as the worm health bar. Note vanilla's off-by-one: `> 200f` lets slot
+            // exactly 200 through, which is a real enemy under a raised cap. Float-only method, hence the
+            // relaxed check in Patch_TargetSlotGates. Its other `200` is a dust alpha and must NOT be touched.
+            // 0 int / 1 float, confirmed against the decompile and against the shipped log line.
+            Apply(mod, "Projectile.AI_136_BetsyBreath (target slot gate)",
+                typeof(Projectile).GetMethod("AI_136_BetsyBreath", BindingFlags.NonPublic | BindingFlags.Instance),
+                il => Patch_TargetSlotGates(il, expectInt: 0, expectFloat: 1));
+
+            // Inferno Potion does nothing at all — its buff scans 0-199 to apply the burn. Anchored via the
+            // npc-loop heuristic rather than blanket: UpdateBuffs is 2165 lines with eight 200/199 literals,
+            // including `buffType[j] == 200`, `ownedProjectileCounts[199]`, and two projectile type ids.
+            PatchNpcLoops(mod, typeof(Player), "UpdateBuffs");
+
+            // Crystal Dart's post-bounce re-aim (Dart Pistol / Dart Rifle's premium ammo). HandleMovement
+            // scans 0-199 for a new target after a tile bounce, so the dart flies straight instead of curving
+            // into an enemy — its entire selling point. Note the asymmetry that made this look intermittent:
+            // the ON-HIT twin of this scan lives in Projectile.Damage and IS covered, so the dart re-aims
+            // after hitting an enemy but not after hitting a wall. Exactly one `200` in the whole 2656-line
+            // method (checked against the decompile) and it is this bound, so blanket is safe.
+            Apply(mod, "Projectile.HandleMovement (dart re-aim after bounce)",
+                typeof(Projectile).GetMethod("HandleMovement", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Stored-target-slot gates inside VanillaAI — see Patch_TargetSlotGates. Not loops, so no loop
+            // patcher reaches them; anchored individually because the method is far too large to blanket.
+            //
+            // THREE int gates, all in the aiStyle 113 "stuck in an enemy" block and all indexing Main.npc by
+            // the same local: the kill gate `slot < 0 || slot >= 200`, and the two per-frame dust emitters for
+            // types 971 and 975. Plus ONE float gate, the aiStyle 55 Horseman's Blade pumpkin re-target.
+            // Counted in the decompiled method body; the assertion in the manipulator is what keeps that count
+            // honest, because until 0.7.8.0 the int arm matched ZERO of the three and said so only in a log
+            // line nobody had reason to re-read.
+            Apply(mod, "Projectile.VanillaAI (stored target-slot gates)",
+                typeof(Projectile).GetMethod("VanillaAI", BindingFlags.Public | BindingFlags.Instance),
+                il => Patch_TargetSlotGates(il, expectInt: 3, expectFloat: 1));
+
+            // -- Sibling pass (0.7.8.0). Each of these is the OTHER half of a fix already made: the same
+            // feature reached by a second code path that the original pass stopped short of. Literal counts
+            // re-verified against the decompile; all are loop bounds unless noted.
+
+            // Scutlix and Santank never fire. CastSuperCartLaser was patched; UpdateEffects -- the same file,
+            // the per-frame mount update -- holds the auto-target scan for both those mounts, so the "found a
+            // target" flag never sets and AimAbility/UseAbility are never called. Not overflow-gated: broken
+            // in every game. 628 lines, one literal.
+            Apply(mod, "Mount.UpdateEffects (Scutlix/Santank auto-target)",
+                typeof(Mount).GetMethod("UpdateEffects", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? typeof(Mount).GetMethod("UpdateEffects", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // CacheProjDraws was patched; CacheNPCDraws is the method directly above it and is called on the
+            // line before it at both call sites. It runs NPCLoader.DrawBehind for each active NPC, and the
+            // documented contract for that is to pair it with `NPC.hide = true` -- which DrawNPCs then skips.
+            // So a modded NPC using that standard pair, above slot 199, is drawn by nobody at all. Two
+            // literals, both loop bounds.
+            Apply(mod, "Main.CacheNPCDraws (hidden/DrawBehind NPCs)",
+                typeof(Main).GetMethod("CacheNPCDraws", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Boss head icons on the map. The health bars and the in-world markers were fixed; the three map
+            // loops (overlay, minimap, fullscreen) were not. NPCID.Sets.BossHeadTextures covers several types
+            // that are neither `boss` nor in ShouldBeCountedAsBoss, so the categorizer files them as ordinary
+            // enemies -- Mourning Wood, Pumpking, Everscream, Ice Queen, SantaNK1, Flying Dutchman, Dungeon
+            // Guardian. Their map marker never appears, during exactly the events this mod amplifies.
+            // 1208 lines, three literals, all three loop bounds.
+            Apply(mod, "Main.DrawMap (boss/town map icons)",
+                typeof(Main).GetMethod("DrawMap", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? typeof(Main).GetMethod("DrawMap", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Invasion battle music never starts. Sibling of CheckInvasionProgressDisplay ("the bar never
+            // appeared") -- same 0-199 scan, different consumer. Both variants are live: the dispatcher picks
+            // _DecideOnTOWMusic when the Otherworldly music toggle is on and _DecideOnNewMusic otherwise, so
+            // neither can be dismissed as legacy. Boss music survives only because bosses are zoned low.
+            // One literal each.
+            Apply(mod, "Main.UpdateAudio_DecideOnNewMusic (invasion music)",
+                typeof(Main).GetMethod("UpdateAudio_DecideOnNewMusic", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+            Apply(mod, "Main.UpdateAudio_DecideOnTOWMusic (invasion music, otherworldly)",
+                typeof(Main).GetMethod("UpdateAudio_DecideOnTOWMusic", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Bone Helm does nothing. Exactly the Volatile Gelatin shape: the accessory only spawns its
+            // projectile when its 0-199 candidate scan finds something, and it never does. One literal.
+            Apply(mod, "Player.SpawnHallucination (Bone Helm)",
+                typeof(Player).GetMethod("SpawnHallucination", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? typeof(Player).GetMethod("SpawnHallucination", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // The read half of a write we already widened. NPC.UpdateFoundActiveNPCs (the writer of the
+            // "is a type of NPC alive" flags) was patched, but both consumers pass the now-correct flag and
+            // then re-scan 0-199 for the position, so they still answer false. isNearFairy gates the fairy
+            // spawn-rate modifier inside the already-patched SpawnNPC -- and our own diagnostics report
+            // "Near Fairy: false" as a consequence. One literal each; the other loop in isNearNPC is a
+            // 255-player bound and is not touched.
+            Apply(mod, "Player.isNearFairy (fairy spawn modifier)",
+                typeof(Player).GetMethod("isNearFairy", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? typeof(Player).GetMethod("isNearFairy", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+            Apply(mod, "Player.isNearNPC (proximity check)",
+                typeof(Player).GetMethod("isNearNPC", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? typeof(Player).GetMethod("isNearNPC", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Smart Cursor's NPC targeting. Main.HoverOverNPCs was widened deliberately so a friendly that
+            // lands high can still be hovered and rescued; this is the same interaction through a different
+            // provider, and it was left at 200 -- so a modded chattable non-townNPC above slot 199 cannot be
+            // smart-targeted. Same argument, opposite decision, now consistent. One literal.
+            Apply(mod, "NPCSmartInteractCandidateProvider.ProvideCandidate (smart cursor)",
+                typeof(Main).Assembly.GetType("Terraria.GameContent.ObjectInteractions.NPCSmartInteractCandidateProvider")
+                    ?.GetMethod("ProvideCandidate", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Eater of Worlds loot. Sibling of the PlayerInteraction fix and carrying its exact caveat --
+            // dormant under boss zoning, live once the guaranteed-spawn path spills it. This is the "am I the
+            // last segment alive?" test, so with the survivors all above 199 it reads true early and boss loot
+            // can drop before the worm is dead, possibly more than once. One literal.
+            Apply(mod, "NPC.DropEoWLoot (last-segment check)",
+                typeof(NPC).GetMethod("DropEoWLoot", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? typeof(NPC).GetMethod("DropEoWLoot", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Old One's Army enemy AI, missed by the dedicated OOA pass which covered the event and the gate
+            // spawners but not the enemies' own scans. The Dark Mage counts damaged nearby allies to choose
+            // between healing and summoning; they are all above 199, so it always summons and never heals.
+            // The lightning bugs' separation scan likewise, so they stack on each other. One literal each.
+            Apply(mod, "NPC.AI_109_DarkMage (heal-vs-summon choice)",
+                typeof(NPC).GetMethod("AI_109_DarkMage", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+            Apply(mod, "NPC.AI_111_DD2LightningBug (separation)",
+                typeof(NPC).GetMethod("AI_111_DD2LightningBug", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Lets you place blocks inside an enemy in a high slot. One literal.
+            Apply(mod, "Collision.EmptyTile (block placement vs NPCs)",
+                typeof(Collision).GetMethod("EmptyTile", BindingFlags.Public | BindingFlags.Static),
+                Patch_AllNpcLoopBounds200);
+
+            // -- World-load / lifecycle pass (0.7.8.0). Every literal count verified against the decompile.
+
+            // NPC.IsMechQueenUp reads `mechQueen >= 0 && mechQueen < 200` while THIS MOD has widened the
+            // writer. `mechQueen = FindFirstNPC(127)` goes through NPC.FindFirstNPC, which we patch to the
+            // full range, so the field can now hold a slot the getter refuses to accept. That inconsistency
+            // is ours, not vanilla's.
+            //
+            // Thirty-six reads across the whole Mechdusa AI plus three draw sites depend on it, so in a
+            // getGood/remix world a Prime head above slot 199 means the fused boss never assembles. The
+            // getter's own self-heal (`mechQueen = -1` when the slot is dead or the wrong type) sits INSIDE
+            // the failing guard, so it cannot recover either. One literal in the getter.
+            Apply(mod, "NPC.IsMechQueenUp (Mechdusa slot guard)",
+                typeof(NPC).GetProperty("IsMechQueenUp", BindingFlags.Public | BindingFlags.Static)?.GetGetMethod(),
+                Patch_AllNpcLoopBounds200);
+
+            // Bestiary credit for critters. ScanWorldForFinds runs every frame from DoUpdateInWorld and scans
+            // 0-199 for "seen near the player" — but critters are Critter-category, so they are allocated
+            // top-down and essentially all of them live above 199. Critter bestiary entries therefore never
+            // unlock from proximity. One literal.
+            Apply(mod, "NPCWasNearPlayerTracker.ScanWorldForFinds (critter bestiary credit)",
+                typeof(Main).Assembly.GetType("Terraria.GameContent.Bestiary.NPCWasNearPlayerTracker")
+                    ?.GetMethod("ScanWorldForFinds", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Lunar Apocalypse. GetRidOfCultists is the cleanup that removes the ritual's Devotees, Archers
+            // and the Lunatic Cultist when Impending Doom starts; they are Enemy-category, so they are all
+            // above 199 and none of them is cleaned up. UpdateLunarApocalypse's own scan tracks the four
+            // pillars and Moon Lord, which are boss-zoned, so that half only bites on boss-zone overflow --
+            // where it would clear the TowerActive flags while a pillar is still alive. One literal each.
+            Apply(mod, "WorldGen.GetRidOfCultists (post-ritual cleanup)",
+                typeof(WorldGen).GetMethod("GetRidOfCultists", BindingFlags.Public | BindingFlags.Static),
+                Patch_AllNpcLoopBounds200);
+            Apply(mod, "WorldGen.UpdateLunarApocalypse (pillar/Moon Lord tracking)",
+                typeof(WorldGen).GetMethod("UpdateLunarApocalypse", BindingFlags.Public | BindingFlags.Static),
+                Patch_AllNpcLoopBounds200);
+
+            // Teleporters ignored anything above slot 199 entirely, and the `teleporting` flag they set was
+            // only ever cleared for 0-199 -- so on the rare occasion a high-slot NPC did get flagged it stayed
+            // flagged for the rest of the world. Both of the method's literals are these two loop bounds.
+            Apply(mod, "Wiring.Teleport (teleporter NPC pass)",
+                typeof(Wiring).GetMethod("Teleport", BindingFlags.NonPublic | BindingFlags.Static),
+                Patch_AllNpcLoopBounds200);
+
+            // "Is a boss/event NPC of this type alive?" — the answer feeds Deerclops proximity, two Mechdusa
+            // AI tuning reads and the RGB-peripheral lighting tier. The CLEAR is full-range (the array is
+            // keyed by NPC type, not slot) while the repopulate scanned 0-199, so the flag was permanently
+            // false for any type that only exists in the bonus zone. Write-narrow / clear-wide -- the same
+            // pairing as the immunity table, on per-frame state rather than cross-world state. One literal.
+            Apply(mod, "NPC.UpdateFoundActiveNPCs (active-type flags)",
+                typeof(NPC).GetMethod("UpdateFoundActiveNPCs", BindingFlags.Public | BindingFlags.Static),
+                Patch_AllNpcLoopBounds200);
+
+            // Duke Fishron's and the Wall of Flesh's screen darkening. Boss-zoned, so overflow-only. One literal.
+            Apply(mod, "ScreenDarkness.Update (boss screen darkening)",
+                typeof(Main).Assembly.GetType("Terraria.GameContent.Events.ScreenDarkness")
+                    ?.GetMethod("Update", BindingFlags.Public | BindingFlags.Static),
+                Patch_AllNpcLoopBounds200);
+
+            // The Mechanical Cart's laser could not target anything above slot 199 -- open since the
+            // whole-assembly sweep first surfaced it. One literal.
+            Apply(mod, "Mount.CastSuperCartLaser (minecart laser targeting)",
+                typeof(Mount).GetMethod("CastSuperCartLaser", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // WorldGen.clearWorld — the world-clear that rebuilds Main.npc, and the root of the
+            // "does a world change actually reset the bonus slots?" question.
+            //
+            // Vanilla replaces every NPC with a fresh object on world clear: `Main.npc[n] = new NPC()` for
+            // n < 200. Under a raised cap that leaves slots 200-749 holding the PREVIOUS world's NPC objects,
+            // still carrying their active flag, ai[], buffs, type and life. Since ordinary enemies are
+            // allocated from the top down, that is where essentially every enemy lives.
+            //
+            // MaxNpcCapRaise.OnWorldLoad already deactivates that range, and that mitigation is what has kept
+            // this from being a headline bug — but it runs AFTER world load completes, it only clears `active`,
+            // and it leaves a window during load itself (town-NPC placement, housing scoring) where the stale
+            // objects are still visible. Widening the loop is the root fix and makes the bonus range behave on
+            // a world change exactly as vanilla's 0-199 does, which is the only standard worth holding to here.
+            // The mitigation stays as belt-and-braces; it is cheap and it covers the cap-raise-toggled-off case.
+            //
+            // ANCHORED, and this one would be genuinely destructive to blanket: the method's other 200 is
+            // `(Main.maxTilesX - 1) / 200 + 1`, the world SECTION size. Widening that would rebuild the section
+            // manager at the wrong granularity for the whole world. The npc-loop heuristic takes only
+            // backward-branch bounds whose body references a Terraria.NPC-declared member, and a divisor is
+            // neither.
+            //
+            // What satisfies that test here is `newobj Terraria.NPC::.ctor()` — NOT `whoAmI`, which an earlier
+            // version of this comment claimed. `whoAmI` is declared on Terraria.Entity and does not satisfy it
+            // at all. The distinction is not pedantry: it is exactly the confusion that left
+            // NPCUtils.SearchForTarget silently unpatched. If this loop were ever rewritten to reuse existing
+            // NPC objects instead of allocating new ones, the constructor call would vanish and this patch
+            // would quietly stop matching.
+            PatchNpcLoops(mod, typeof(WorldGen), "clearWorld");
+
+            // Boss summon items stop working as duplicate guards once the boss zone overflows. SummonItemCheck
+            // scans 0-199 for a live boss of the matching type and refuses the item if it finds one; above
+            // that it finds nothing and happily summons a second Eye of Cthulhu, Destroyer, Queen Bee, Brain,
+            // Queen Slime or Empress on top of the first. Bosses are zoned low so this normally holds, but the
+            // guaranteed-spawn path overflows that zone on purpose - and two simultaneous mechanical bosses is
+            // a far louder failure than most. One literal in a fourteen-line method.
+            Apply(mod, "Player.SummonItemCheck (duplicate-boss guard)",
+                typeof(Player).GetMethod("SummonItemCheck", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // The "did NewNPC succeed?" sentinel, which this mod turns from a safe idiom into a wrong one.
+            //
+            // Vanilla's NewNPC returns 200 on failure -- one past the last real slot -- so callers test the
+            // result with `== 200` or `< 200` to mean "did I get a real NPC?". We patch that failure return to
+            // EngineState.NpcCap (750), which is correct on its own, but it invalidates every caller that
+            // still compares against 200. Real slots now run 200-749, so a successful spawn reads as a
+            // failure.
+            //
+            // NPC.SpawnBoss is the one that bites in single-player. `if (num == 200) return;` no longer
+            // catches an actual failure, and worse, a boss that legitimately lands in slot 200 is treated as
+            // one: the method returns before setting the boss's target, before multiplying its timeLeft by 20
+            // and before the mech-boss achievement check, so the boss drifts with a normal despawn timer.
+            // Only reachable once the reserved boss zone overflows -- which the guaranteed-spawn path does on
+            // purpose. Two of its three 200s are this sentinel; the third is a multiplayer broadcast guard
+            // owned by MMMultiplayer, so this takes only its own two -- see Patch_SpawnBossSentinel.
+            Apply(mod, "NPC.SpawnBoss (NewNPC success sentinel)",
+                typeof(NPC).GetMethod("SpawnBoss", BindingFlags.Public | BindingFlags.Static),
+                Patch_SpawnBossSentinel);
+
+            // Windy Day balloons lose track of the slime tied to them. The balloon stores its partner's slot
+            // in ai[3] and validates it with `>= 0 && < 200` before use; above 199 the lookup returns null, so
+            // the pair never behaves as a pair. Not netMode-gated, so this is single-player too. One literal
+            // in a twenty-line method.
+            Apply(mod, "NPC.AI_113_WindyBalloon_GetSlaveNPC (paired-slot lookup)",
+                typeof(NPC).GetMethod("AI_113_WindyBalloon_GetSlaveNPC", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // The same sentinel appears 23 more times across the engine, always as
+            // `if (Main.netMode == 2 && spawned < 200) NetMessage.SendData(23, ...)`: 16 in NPC.cs, 5 in
+            // DD2Event (already covered by the multiplayer patcher's gate-spawner pass) and 2 in WorldGen.
+            // Every one is server-only, and the symptom is uniform -- an NPC spawned into a high slot by
+            // another NPC's AI is never broadcast, so clients never see it. They are deliberately left for the
+            // multiplayer work rather than fixed piecemeal here: most sit inside VanillaAI_Inner and
+            // VanillaHitEffect, which are far too literal-rich to blanket, so each needs its own anchor and
+            // none of them can be verified without a server to test against.
+
+            // Brain of Cthulhu's gravity inversion, and the cleanup that is supposed to forget it.
+            //
+            // NPC.brainOfGravity is written UNBOUNDED (`brainOfGravity = whoAmI` in NPC.cs) but read behind
+            // `>= 0 && < 200` in both of its two consumers. Above slot 199 that means the Expert-mode gravity
+            // flip never happens AND the value is never cleared when the Brain dies, so it keeps pointing at a
+            // slot that has since been reused. Write-wide / guard-narrow, the same shape as the immunity table.
+            //
+            // Dormant while boss zoning keeps the Brain under 200 - but "dormant because of zoning" was also
+            // the argument for leaving the worm health bar alone, and the guaranteed-spawn path deliberately
+            // overflows the boss zone. Both sites are patched together because a half-fix here is worse than
+            // none: widening the Player.Update read while leaving Main's cleanup narrow would apply the
+            // gravity effect from a stale index forever.
+            Apply(mod, "Main.DoUpdateInWorld (brainOfGravity cleanup)",
+                typeof(Main).GetMethod("DoUpdateInWorld", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_BrainOfGravityGate);
+            Apply(mod, "Player.Update (brainOfGravity gravity flip)",
+                typeof(Player).GetMethod("Update", BindingFlags.Public | BindingFlags.Instance),
+                Patch_BrainOfGravityGate);
+
+            // Talking to a town NPC in a high slot did not register the chat with the Bestiary, so that NPC
+            // could never be completed there. Only reachable once the town zone overflows. One literal in a
+            // twenty-line method, so blanket is exact.
+            Apply(mod, "Player.SetTalkNPC (bestiary chat registration)",
+                typeof(Player).GetMethod("SetTalkNPC", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // -- Melee-class pass (0.7.7.2). Every literal count below was verified against the decompile;
+            // "blanket-safe" means the method's ONLY 200-family literals are NPC-slot loop bounds.
+
+            // Ghastly Glaive's ghast never had a target. On hit the glaive summons a ghast that is meant to
+            // spawn beside a randomly chosen nearby enemy and fly through it; the candidate list is built by
+            // a 0-199 scan, so it comes back empty and the ghast spawns at the glaive with a random heading
+            // and wanders off. That ghast is most of the weapon's damage. One literal - blanket-safe.
+            Apply(mod, "Projectile.SummonMonkGhast (Ghastly Glaive target list)",
+                typeof(Projectile).GetMethod("SummonMonkGhast", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Volatile Gelatin was completely inert. The accessory only fires its ball when its nearest-enemy
+            // scan finds something, and the scan was 0-199. One literal - blanket-safe. Note this accessory
+            // was ALSO gated by the perIDStaticNPCImmunity bug (its projectile sets usesIDStaticNPCImmunity),
+            // so it had two independent reasons not to work; fixing one alone would have looked like a failed
+            // fix, which is worth remembering the next time a "fixed" weapon is reported still broken.
+            Apply(mod, "Player.VolatileGelatin (accessory target scan)",
+                typeof(Player).GetMethod("VolatileGelatin", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Multi-part boss loot credit. Called from StrikeNPC on every hit; its seven loops propagate
+            // "this player interacted" across the segments of Eater of Worlds, Destroyer, Skeletron, Wall of
+            // Flesh, Golem and the Twins. Boss zoning normally keeps those low, so this is dormant - but the
+            // guaranteed-spawn path deliberately spills the boss zone, and when it does, killing a part in a
+            // high slot silently drops loot credit for the whole boss. All seven literals are loop bounds.
+            Apply(mod, "NPC.PlayerInteraction (multi-part boss loot credit)",
+                typeof(NPC).GetMethod("PlayerInteraction", BindingFlags.Public | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Multiplayer only. netOffset is the client-side interpolation offset, written unbounded by
+            // MessageBuffer and added to npc.position around every hit test in Projectile.Damage and
+            // ItemCheck_MeleeHitNPCs. The reset - called on teleport and camera pan - cleared only 0-199, so
+            // a high-slot NPC keeps a stale offset across a teleport and melee hitboxes test against a
+            // phantom position. Same write-wide / reset-narrow shape as the immunity table. One literal.
+            Apply(mod, "NPC.ResetNetOffsets (stale interpolation offset)",
+                typeof(NPC).GetMethod("ResetNetOffsets", BindingFlags.Public | BindingFlags.Static),
+                Patch_AllNpcLoopBounds200);
+
+            // Cosmetic: a spear stuck in a high-slot enemy (Daybreak, Bone Javelin) drew in the wrong layer,
+            // because the "which NPC am I stuck in" check is `num >= 0 && num < 200`. One literal.
+            Apply(mod, "Main.CacheProjDraws (stuck-spear draw layer)",
+                typeof(Main).GetMethod("CacheProjDraws", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_AllNpcLoopBounds200);
+
+            // Brain of Confusion's defensive half never fired - the on-hurt AoE confusion scans 0-199.
+            // ANCHORED, not blanket: the method's other literal is `Main.rand.Next(200 + (int)num / 2, ...)`,
+            // the confusion RADIUS. Blanket would turn a 200px radius into a 750px one and make the accessory
+            // absurd. The npc-loop heuristic takes only the backward-branch bound, and a call argument is
+            // neither.
+            PatchNpcLoops(mod, typeof(Player), "OnHurt_Part3");
+
+            // Minecart ramming dealt no damage to anything above slot 199, i.e. to essentially every enemy.
+            // ANCHORED: Player.Update is 4013 lines with seven 200-family literals - `AddBuff(199, 3)` (a
+            // buff id), two dust alphas, `nPC.direction * 200` (a distance), `num85 = 200` (a remix-world
+            // depth constant) and a brainOfGravity sentinel. Only the minecart collision loop is a
+            // backward-branch NPC loop, so the heuristic takes exactly one of the seven.
+            PatchNpcLoops(mod, typeof(Player), "Update");
+
+            // Projectile.Kill - the two gaps that have been on the open list since 0.7.2, now closed.
+            //
+            // Seedler's nut collects nearby enemies on death and aims its thorns at them; with the scan
+            // stopping at 199 the thorns still spawn but fly in random directions, so the weapon's homing
+            // shrapnel becomes a scatter of misses. The second loop is the Love/Foul Potion aura applying its
+            // buff. Its companion buffer is `new int[Main.rand.Next(4, 8)]` with a length break, so it is
+            // dynamically sized and the loop can be widened without touching it.
+            //
+            // This method has been flagged repeatedly as UNSAFE TO BLANKET and that has not changed: it holds
+            // `width = 200; height = 200` (Dynamite's blast box), a colour channel, `Main.rand.Next(10, 201)`,
+            // `Main.rand.Next(-200, 201)` and six firework staging guards. What makes the heuristic safe HERE
+            // specifically is a property that does NOT hold inside NPC itself: a dust loop in Projectile.Kill
+            // references Terraria.Projectile members, so the "body mentions an NPC member" test genuinely
+            // discriminates. Verified against the decompile - exactly two `< 200` loops in 13672 lines, both
+            // indexing Main.npc, and every other literal is a store, a call argument or a forward branch, and
+            // TryFindLoopBodyStart rejects forward branches by construction.
+            PatchNpcLoops(mod, typeof(Projectile), "Kill");
+
+            // Daybreak's on-death debuff spread. A killed Daybreak-marked enemy is supposed to re-apply the
+            // debuff to everything within 100px; the scan was 0-199, so in a crowd Daybreak loses its entire
+            // chain value. See Patch_DaybreakSpread for why this one cannot use the heuristic.
+            Apply(mod, "NPC.VanillaHitEffect (Daybreak debuff spread)",
+                typeof(NPC).GetMethod("VanillaHitEffect", BindingFlags.NonPublic | BindingFlags.Instance),
+                Patch_DaybreakSpread);
+
+            // Critter release gate. Counts active NPCs against a float ceiling derived from 200 — see
+            // Patch_CanReleaseNPCs for why the loop bound must NOT be widened on its own.
+            Apply(mod, "NPC.CanReleaseNPCs (critter release density gate)",
+                typeof(NPC).GetMethod("CanReleaseNPCs", BindingFlags.Public | BindingFlags.Static),
+                Patch_CanReleaseNPCs);
+
+            // Projectile.ResetImmunity — hit-immunity timestamps that survive a world change (0.7.7.1b).
+            //
+            // `perIDStaticNPCImmunity[projType][npcSlot]` holds the game tick after which that projectile type
+            // may hit that NPC slot again. Two things run on EVERY world load, and together they break:
+            //   Main.ResetGameCounter   -> Main.GameUpdateCount = 0        (Main.cs:6631, hooked at :6811)
+            //   Projectile.ResetImmunity -> zeroes the table, but only `for (j = 0; j < 200; j++)`
+            // So the counter restarts at zero while slots 200+ keep the timestamps written during the PREVIOUS
+            // world — and every ordinary enemy lives above 199 under this mod. The gate is
+            // `stored <= GameUpdateCount` (Projectile.cs:759), so a stale stamp of, say, 400000 blocks that
+            // slot until the new session has run 400000 ticks. Play an hour, load another world, and those
+            // slots are unhittable for about an hour.
+            //
+            // Symptom shape, which is why this took three reports to find: it only affects projectiles that set
+            // `usesIDStaticNPCImmunity` (a SUBSET of weapons — hence "half of the whips and swords"), it needs
+            // no crowding at all (one enemy is enough, it is per-slot state), plain broadswords are immune to
+            // it because they never touch this table, and it CANNOT be reproduced in a freshly launched game:
+            // the table is allocated zeroed, so the first world of a session is always clean. It appears on the
+            // second and later world loads.
+            //
+            // One `ldc.i4 200` in the method and it is the loop bound, so the blanket manipulator is safe.
+            Apply(mod, "Projectile.ResetImmunity (stale cross-world hit immunity)",
+                typeof(Projectile).GetMethod(nameof(Projectile.ResetImmunity), BindingFlags.Public | BindingFlags.Static),
+                Patch_AllNpcLoopBounds200);
 
             // Worm-boss health bar position. DrawInterface_Healthbar_Worm scans forward from the head for
             // the tail and draws the bar midway between them; the scan is `for (i = head.whoAmI + 1; i < 200)`.
@@ -861,10 +1512,213 @@ namespace ManyMoreMobs
             return instr.Operand is VariableDefinition v ? v.Index : -1;
         }
 
+
+        /// <summary>Local slot a <c>ldloc</c> family instruction reads, or -1. Mirror of <see cref="StoreLocalIndex"/>.</summary>
+        private static int LoadLocalIndex(Instruction instr)
+        {
+            if (instr == null)
+                return -1;
+
+            OpCode op = instr.OpCode;
+            if (op == OpCodes.Ldloc_0) return 0;
+            if (op == OpCodes.Ldloc_1) return 1;
+            if (op == OpCodes.Ldloc_2) return 2;
+            if (op == OpCodes.Ldloc_3) return 3;
+            if (op != OpCodes.Ldloc && op != OpCodes.Ldloc_S) return -1;
+
+            return instr.Operand is VariableDefinition v ? v.Index : -1;
+        }
+
+        /// <summary>
+        /// Widen the "is my stored target slot valid?" gates in <c>Projectile.VanillaAI</c> and friends.
+        /// <para/>
+        /// These are NOT loops, so no loop patcher can reach them, and the method is 20,000 lines with over a
+        /// hundred lines carrying a 200/199/201 — blanket replacement would be reckless. Both forms are
+        /// anchored on the shape of the comparison itself.
+        /// <para/>
+        /// <b>Callers must declare how many of each form they expect, and a shortfall throws.</b> The previous
+        /// version failed only when BOTH forms matched zero, and that is exactly how it hid: in VanillaAI it
+        /// matched the one float gate, reported "0 int, 1 float", and silently left all THREE int gates at 200
+        /// for a whole version. "Zero of the thing I came for" has to be a failure, not a log line — the only
+        /// reason this was ever caught is that this manipulator happens to print its counts.
+        /// <list type="bullet">
+        /// <item><b>Stuck projectiles (aiStyle 113).</b> <c>if (slot &lt; 0 || slot &gt;= 200) Kill();</c> — and the
+        /// slot is written by our OWN widened loop in <c>Damage</c> (<c>ai[1] = i</c>). Bone Javelin, Daybreak,
+        /// Tentacle Spike and Blood Butcherer stick for one frame, then die. Their damage-over-time is not a
+        /// debuff — the NPC COUNTS live stuck projectiles each tick — so killing them removes 100% of it.
+        /// Daybreak's counter multiplies by 100; that is the entire weapon.</item>
+        /// <item><b>Horseman's Blade pumpkins (aiStyle 55).</b> <c>if (ai[0] &gt;= 0f &amp;&amp; ai[0] &lt; 200f)</c> …
+        /// <c>else Kill();</c> A FLOAT literal, which <see cref="SafeLdcI4"/> cannot match, so it stayed at 200
+        /// while we widened the re-target scan that writes it — we made this one worse, not better.</item>
+        /// </list>
+        /// </summary>
+        private static void Patch_TargetSlotGates(ILContext il, int expectInt, int expectFloat)
+        {
+            var instrs = il.Body.Instructions;
+            int intGates = 0, floatGates = 0;
+
+            // Pass 1 — which locals are PROVEN to be NPC slot indices? A local L qualifies when the method
+            // contains `ldsfld Main::npc · ldloc L · ldelem.ref` anywhere, i.e. it is literally used to index
+            // Main.npc. This replaced a fixed 30-instruction look-ahead, and the difference is not cosmetic:
+            // VanillaAI's third gate guards a DUST emitter whose body never touches Main.npc at all, so no
+            // look-ahead of any size could ever have classified it. It is the same variable the other two
+            // gates guard, and a slot local is a slot local everywhere in the method.
+            var slotLocals = new HashSet<int>();
+            for (int j = 0; j < instrs.Count; j++)
+            {
+                int L = LoadLocalIndex(instrs[j]);
+                if (L < 0)
+                    continue;
+                Instruction before = PrevReal(instrs, j);
+                if (before?.OpCode == OpCodes.Ldsfld
+                    && before.Operand is FieldReference npcField
+                    && npcField.Name == "npc"
+                    && npcField.DeclaringType?.Name == "Main"
+                    && NextReal(instrs[j])?.OpCode == OpCodes.Ldelem_Ref)
+                {
+                    slotLocals.Add(L);
+                }
+            }
+
+            for (int j = 0; j < instrs.Count; j++)
+            {
+                Instruction cur = instrs[j];
+
+                // ── int form: `ldloc X; ldc.i4 200; <cond branch>` where X indexes Main.npc shortly after.
+                // PrevReal, not instrs[j - 1]: in a 255+-local method the real predecessor is `ldloc X` but the
+                // raw neighbour is a nop, so this arm matched nothing at all. See PrevReal for the measurement.
+                if (SafeLdcI4(cur, 200) && !TryFindLoopBodyStart(instrs, j, out _))
+                {
+                    int local = LoadLocalIndex(PrevReal(instrs, j));
+                    Instruction branch = NextReal(cur);
+                    if (local >= 0 && slotLocals.Contains(local)
+                        && branch != null && branch.OpCode.FlowControl == FlowControl.Cond_Branch)
+                    {
+                        cur.OpCode = OpCodes.Ldsfld;
+                        cur.Operand = il.Import(NpcCapField);
+                        intGates++;
+                    }
+                }
+
+                // ── float form: `ldelem.r4; ldc.r4 200; <cond branch>` — reading an ai[] slot, not a local.
+                // The ldelem.r4 predecessor is what separates it from the 13 other 200f values in this method
+                // (distances, colours, positions), every one of which must be left alone.
+                // ldelem.r4 is never nop-padded, so this arm was never broken; it goes through the same
+                // helpers anyway so the two arms cannot drift apart the next time the encoding shifts.
+                //
+                // LoadsNpcArrayWithin is what makes this arm safe to point at a new method, and it was added
+                // because the arm was one registration away from causing a bug of its own. The three-part
+                // shape `ldelem.r4 · ldc.r4 200 · branch` is NOT unique to a slot gate: NPC.AI_005_EaterOfSouls
+                // matches it exactly with `if (ai[0] > 200f) ai[0] = -200f;`, which is the oscillation counter
+                // that makes Eaters of Souls wobble — widening it to 750 would have stretched their movement
+                // period nearly fourfold, with nothing in any log to connect the two. A real slot gate always
+                // turns the value it just validated into an index; the counter never touches Main.npc at all.
+                if (SafeLdcR4(cur, 200f)
+                    && PrevReal(instrs, j)?.OpCode == OpCodes.Ldelem_R4
+                    && NextReal(cur)?.OpCode.FlowControl == FlowControl.Cond_Branch
+                    && LoadsNpcArrayWithin(instrs, j, 12))
+                {
+                    cur.OpCode = OpCodes.Ldsfld;
+                    cur.Operand = il.Import(NpcCapField);
+                    il.Body.Instructions.Insert(j + 1, Instruction.Create(OpCodes.Conv_R4));
+                    j++;   // skip the instruction we just inserted
+                    floatGates++;
+                }
+            }
+
+            // Per-FORM accounting. A method with three int gates that widens one is broken in a way a combined
+            // total hides, and "some of the weapon works" is the hardest kind of report to act on.
+            if (intGates != expectInt || floatGates != expectFloat)
+            {
+                throw new Exception(
+                    $"stored-slot gate count changed in {il.Method.Name}: expected {expectInt} int / " +
+                    $"{expectFloat} float, found {intGates} int / {floatGates} float");
+            }
+
+            ModRef?.Logger.Info($"[MMM] target-slot gates widened in {il.Method.Name}: {intGates} int, {floatGates} float");
+        }
+
+
+        /// <summary>
+        /// The instruction before <paramref name="index"/>, skipping <c>nop</c> padding. Null if there is none.
+        /// </summary>
+        /// <remarks>
+        /// <b>Why this exists.</b> In this build EVERY long-form <c>ldloc</c> / <c>stloc</c> / <c>ldloca</c> is
+        /// followed by exactly two <c>nop</c>s. Not usually — always: measured over the whole
+        /// <c>Terraria.Projectile</c> type, 35,841 long-form local accesses and 35,841 of them nop-padded,
+        /// accounting for 71,682 of the type's 71,826 nops. <c>Projectile.VanillaAI</c> alone is 18% nop.
+        /// <para/>
+        /// The long form is only emitted for local index 255 and above (measured, not assumed: the highest
+        /// short-form index anywhere in the assembly is `ldloc.s 254`, the lowest long-form is `ldloc 255`, and
+        /// `ldloc.s 255` does not occur at all -- so the boundary is 255, not the 256 the operand width would
+        /// suggest), so the padding appears ONLY in methods
+        /// with 255+ locals — <c>Projectile.VanillaAI</c>, <c>NPC.VanillaAI_Inner</c>, <c>Player.Update</c>.
+        /// Those are exactly the methods too large to blanket-patch, so they are exactly the ones that need
+        /// anchored patches, so they are exactly the ones whose patches inspect neighbouring instructions. The
+        /// blindness concentrates in the code where it is hardest to notice, and it fails SILENTLY: the
+        /// manipulator matches nothing, throws nothing, and <c>Apply</c> still logs "IL patched".
+        /// <para/>
+        /// Rule of thumb for any new anchored patch: <c>.Next</c> after a <c>ldc.i4</c>, <c>ldc.r4</c>,
+        /// <c>ldsfld</c> or <c>ldelem.*</c> is safe, because nothing pads those. Any step onto or off a LOCAL
+        /// access must go through these helpers.
+        /// </remarks>
+        private static Instruction PrevReal(IList<Instruction> instrs, int index)
+        {
+            for (int k = index - 1; k >= 0; k--)
+            {
+                if (instrs[k].OpCode != OpCodes.Nop)
+                    return instrs[k];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// True if <c>Main.npc</c> is loaded within <paramref name="window"/> REAL (non-<c>nop</c>) instructions
+        /// after <paramref name="from"/> — i.e. the value the gate just validated is actually used as a slot.
+        /// </summary>
+        /// <remarks>
+        /// The counterpart to the proven-slot-local set for the float form, where there is no local to
+        /// track: the gate reads an <c>ai[]</c> element straight off the array, so the only thing that
+        /// distinguishes "is this a valid NPC slot?" from "has this counter run past 200?" is whether an NPC
+        /// lookup follows. Measured against all three known sites: Betsy's breath loads <c>Main.npc</c> four
+        /// real instructions later, the Horseman's Blade re-target seven, and the Eater of Souls wobble
+        /// counter never.
+        /// </remarks>
+        private static bool LoadsNpcArrayWithin(IList<Instruction> instrs, int from, int window)
+        {
+            for (int k = from + 1, seen = 0; k < instrs.Count && seen < window; k++)
+            {
+                if (instrs[k].OpCode == OpCodes.Nop)
+                    continue;
+                seen++;
+                if (instrs[k].OpCode == OpCodes.Ldsfld
+                    && instrs[k].Operand is FieldReference fr
+                    && fr.Name == "npc"
+                    && fr.DeclaringType?.Name == "Main")
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>The instruction after <paramref name="instr"/>, skipping <c>nop</c> padding; null if none.
+        /// See <see cref="PrevReal"/> for why this is necessary.</summary>
+        private static Instruction NextReal(Instruction instr)
+        {
+            Instruction n = instr?.Next;
+            while (n != null && n.OpCode == OpCodes.Nop)
+                n = n.Next;
+            return n;
+        }
+
         // Discrete projectile AIs (outside the monolithic AI()) that contain their own NPC-target scan.
         private static readonly string[] ChaseLoopAIMethods =
         {
-            "AI_001", "AI_009_MagicMissiles", "AI_015_Flails", "AI_015_Flails_Old", "AI_016", "AI_026",
+            // AUDIT-SKIP: Projectile.AI_015_Flails_Old — unreachable. The engine kept the old flail AI body
+            // but calls only AI_015_Flails; zero call sites in the whole assembly, and it is `private`, so no
+            // mod can reach it either.
+            "AI_001", "AI_009_MagicMissiles", "AI_015_Flails", "AI_016", "AI_026",
             "AI_047_MagnetSphere_TryAttacking", "AI_062" /*Abigail*/, "AI_067_TigerSpecialAttack",
             "AI_099_1", "AI_099_2", "AI_100_Medusa", "AI_120_StardustGuardian", "AI_121_StardustDragon",
             "AI_130_FlameBurstTower_FindTarget", "AI_134_Ballista_FindTarget", "AI_137_CanHit",
@@ -874,22 +1728,6 @@ namespace ManyMoreMobs
             "AI_177_IceWhipSlicer",
         };
 
-        /// <summary>Resolve a projectile AI method by name and apply the NPC chase-loop widening heuristic.</summary>
-        private static void PatchChaseLoops(Mod mod, Type type, string name)
-        {
-            MethodInfo method;
-            try
-            {
-                method = type.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
-            }
-            catch (AmbiguousMatchException)
-            {
-                mod.Logger.Error($"[MMM] {type.Name}.{name} is ambiguous; chase-loop patch skipped.");
-                return;
-            }
-
-            Apply(mod, $"{type.Name}.{name} (chase loops)", method, Patch_NpcChaseLoops);
-        }
 
         /// <summary>Resolve a projectile AI method by name and widen its NPC-iterating loops (broad NPC-member body check).</summary>
         private static void PatchNpcLoops(Mod mod, Type type, string name)
@@ -908,14 +1746,30 @@ namespace ManyMoreMobs
             Apply(mod, $"{type.Name}.{name} (npc loops)", method, Patch_NpcLoops);
         }
 
-        // Broader sibling of Patch_NpcChaseLoops: widen a backward-branch `< 200` loop if its body references
-        // ANY member declared on NPC (a field like `active`/`chaseable` or a method like `CanBeChasedBy`),
-        // i.e. it's iterating NPCs. Catches homing/targeting loops that don't use CanBeChasedBy. Restricted to
-        // discrete per-weapon AI methods (small, NPC-focused) — NOT the monolithic AI() — to bound risk.
+        // Widen a backward-branch `< 200` loop if its body references a member whose DECLARING TYPE is
+        // Terraria.NPC — e.g. `chaseable`, `type`, `ai[]`, `CanBeChasedBy` — i.e. it is iterating NPCs.
+        // Catches homing/targeting loops that don't use CanBeChasedBy.
+        //
+        // TWO CORRECTIONS to what this comment used to say, both of which cost real bugs:
+        //
+        // 1. `active` is NOT such a member. Nor are `whoAmI`, `position`, `width`, `height`, `velocity` or
+        //    `Center` — all seven are declared on Terraria.Entity. A loop body containing only those matches
+        //    NOTHING here. That is exactly how NPCUtils.SearchForTarget went a whole version unpatched while
+        //    reporting success.
+        // 2. This is NOT "restricted to discrete per-weapon AI methods". It is applied to Projectile.VanillaAI
+        //    (20k lines), Projectile.Kill (13.7k), Player.Update (4k), Player.UpdateBuffs (2.1k),
+        //    WorldGen.clearWorld, and two methods on Terraria.NPC itself.
+        //
+        // The second point carries a live hazard worth stating plainly: inside Terraria.NPC the test barely
+        // discriminates, because `Dust.NewDust(position, width, height, ...)` reads members that resolve to
+        // Entity — but a dust loop in NPC that touches any NPC-declared field would be widened to 750
+        // particles. The two NPC targets here (AI_084_LunaticCultist, MechSpawn) happen to contain no
+        // 200-bounded dust loop, so this is currently safe by luck rather than by design. Prefer an anchored
+        // patch for anything new inside Terraria.NPC — see Patch_DaybreakSpread for the pattern.
         private static void Patch_NpcLoops(ILContext il)
         {
             var instrs = il.Body.Instructions;
-            int count = 0;
+            int count = 0, arrays = 0;
 
             for (int j = 0; j < instrs.Count; j++)
             {
@@ -937,49 +1791,62 @@ namespace ManyMoreMobs
                 instrs[j].OpCode = OpCodes.Ldsfld;
                 instrs[j].Operand = il.Import(NpcCapField);
                 count++;
-            }
 
-            if (count > 0)
-                ModRef?.Logger.Info($"[MMM] npc-loop patch widened {count} loop(s) in {il.Method.Name}");
-        }
-
-        // Widen NPC-targeting loops without touching unrelated 200s. Find every `ldc.i4 200` that is the bound
-        // of a BACKWARD-branch loop (`ldloc i; ldc.i4 200; blt BODY`, the standard `for (i=0; i<200; i++)`
-        // shape), then widen it ONLY if a `CanBeChasedBy` call appears inside that loop's actual body
-        // (between the branch target and the bound). Checking the real body — not a fixed window — handles
-        // loops with long bodies (e.g. the spider sentry's guard-at-top scan) and both the `npc[i]` and the
-        // `NPC nPC = npc[i]` patterns. Unrelated 200s (no chase call in their loop, or not a loop bound at all)
-        // are left untouched. Does not throw on zero matches.
-        private static void Patch_NpcChaseLoops(ILContext il)
-        {
-            var instrs = il.Body.Instructions;
-            int count = 0;
-
-            for (int j = 0; j < instrs.Count; j++)
-            {
-                if (!SafeLdcI4(instrs[j], 200) || !TryFindLoopBodyStart(instrs, j, out int target))
-                    continue;
-
-                bool chase = false;
-                for (int b = target; b < j; b++)
+                // Widening a loop is not enough on its own if the loop FILLS a scratch array that was itself
+                // allocated at 200. `Projectile.VanillaAI` aiStyle 59 (Spectre Wrath) does exactly that:
+                //
+                //     int[] array = new int[200];
+                //     int n = 0;
+                //     for (int i = 0; i < 200; i++)
+                //         if (Main.npc[i].CanBeChasedBy(this) && dist < 800f) { array[n] = i; n++; }
+                //
+                // with no cap on `n`. Before we widened the loop the array could never overflow; after, 201
+                // chaseable NPCs inside the search radius write array[200] and throw INSIDE projectile AI.
+                // So this patch was creating a crash that vanilla does not have.
+                //
+                // An array of exactly 200 allocated immediately before a loop we just decided is NPC-indexed
+                // is, by construction, indexed by NPC slot too. Widen it with the loop. Scoped tightly: only
+                // `ldc.i4 200; newarr`, and only within a short window before the loop body.
+                for (int b = Math.Max(0, target - 12); b < target; b++)
                 {
-                    if (instrs[b].Operand is MethodReference m && m.Name == "CanBeChasedBy")
-                    {
-                        chase = true;
-                        break;
-                    }
+                    if (!SafeLdcI4(instrs[b], 200)) continue;
+                    if (instrs[b].Next?.OpCode != OpCodes.Newarr) continue;
+                    instrs[b].OpCode = OpCodes.Ldsfld;
+                    instrs[b].Operand = il.Import(NpcCapField);
+                    arrays++;
                 }
-                if (!chase)
-                    continue;
-
-                instrs[j].OpCode = OpCodes.Ldsfld;
-                instrs[j].Operand = il.Import(NpcCapField);
-                count++;
             }
 
             if (count > 0)
-                ModRef?.Logger.Info($"[MMM] chase-loop patch widened {count} loop(s) in {il.Method.Name}");
+            {
+                ModRef?.Logger.Info($"[MMM] npc-loop patch widened {count} loop(s)" +
+                                    (arrays > 0 ? $" and {arrays} companion array(s)" : "") +
+                                    $" in {il.Method.Name}");
+            }
+            else
+            {
+                // Deliberately NOT a throw. Eleven of the registrations routed here legitimately widen
+                // nothing — several AI methods carry no `ldc.i4 200` at all, or only float ones — so throwing
+                // would turn a normal outcome into a failure. But silence is worse: NPCUtils.SearchForTarget
+                // matched nothing for an entire version because every member in its loop body is declared on
+                // Terraria.Entity rather than Terraria.NPC, and nothing anywhere said so.
+                //
+                // So it says so. If a method you expected to be widened appears here, the likely cause is
+                // that its loop touches only Entity-declared members (`active`, `whoAmI`, `position`,
+                // `width`, `height`, `velocity`, `Center`) and it needs a different manipulator.
+                ModRef?.Logger.Info($"[MMM] npc-loop patch matched NO loops in {il.Method.Name} " +
+                                    "(expected for AI methods with no 200-bounded NPC scan; " +
+                                    "otherwise its loop body may only touch Entity-declared members).");
+            }
         }
+
+        // Patch_NpcChaseLoops and its PatchChaseLoops wrapper lived here and were DEAD CODE: nothing ever
+        // called them. The ChaseLoopAIMethods array above is fed to PatchNpcLoops, which uses the broader
+        // "any Terraria.NPC-declared member in the loop body" test -- NOT the narrower "body calls
+        // CanBeChasedBy" test the removed manipulator implemented. Keeping them meant two comments in
+        // this file described a heuristic that never ran, which is how the array's name still misleads.
+        // Removed rather than marked, because a dead manipulator that documents the wrong behaviour is
+        // worse than no manipulator at all.
 
         // Find the body start of the loop whose bound is the `ldc.i4 200` at index j. Handles BOTH the direct
         // form (`ldc.i4 200; blt.s BODY`) and this build's compare-then-branch form (`ldc.i4 200; clt;
@@ -1050,6 +1917,29 @@ namespace ManyMoreMobs
             catch { return false; }
         }
 
+        /// <summary>
+        /// The float counterpart of <see cref="SafeLdcI4"/>, and the reason it had to exist.
+        /// <para/>
+        /// A slot bound written as <c>200f</c> compiles to <c>ldc.r4 200</c>, which <see cref="SafeLdcI4"/>
+        /// structurally cannot match — it inspects only the <c>ldc.i4</c> family. Every blanket patch in this
+        /// file is therefore blind to float-typed slot guards, and that blindness is total rather than
+        /// partial: not "we forgot to patch it" but "no patch we can write with SafeLdcI4 could ever reach
+        /// it". Two shipped bugs hid in that gap — Betsy's flame breath killing itself, and aiStyle 55 homing
+        /// silently refusing to home — and both were found by reading the method, because no tool could see
+        /// them. <c>tools/audit-npc-loops.sh</c> now reports the shape as FLOATGUARD; this is the fix it
+        /// points at.
+        /// <para/>
+        /// Unlike the int case there is no throwing helper to route around. <c>ldc.r4</c> always carries a
+        /// float operand, so the type test IS the whole check.
+        /// <para/>
+        /// Callers must remember the type: replacing the literal with <c>ldsfld EngineState.NpcCap</c> pushes
+        /// an <c>int</c> where the following comparison expects a float, so a <c>conv.r4</c> has to be
+        /// inserted after it. Forgetting that produces IL that verifies inconsistently and fails at JIT time
+        /// rather than at patch time, which is much harder to trace back here.
+        /// </summary>
+        internal static bool SafeLdcR4(Instruction instr, float value)
+            => instr.OpCode == OpCodes.Ldc_R4 && instr.Operand is float f && f == value;
+
         private static bool IsConditionalBranch(OpCode op)
             => op == OpCodes.Brtrue || op == OpCodes.Brtrue_S || op == OpCodes.Brfalse || op == OpCodes.Brfalse_S
             || op == OpCodes.Blt || op == OpCodes.Blt_S || op == OpCodes.Blt_Un || op == OpCodes.Blt_Un_S
@@ -1111,8 +2001,14 @@ namespace ManyMoreMobs
                 "PirateShipBigProgressBar",
                 "BrainOfCthuluBigProgressBar",
                 "DeerclopsBigProgressBar",
+                // The eleventh. Missed for three versions because the VANILLA class name is misspelled
+                // ("Progess"), so it did not match a search for the correctly-spelled word. Its own
+                // ValidateAndCollectNecessaryInfo rejects `npcIndexToAimAt > 200`, so BigProgressBarSystem
+                // (patched) would hand it a high-slot pillar and the bar would then refuse to draw it.
+                "LunarPillarBigProgessBar",
             };
 
+            BossBarNoMatch.Clear();
             int patched = 0, missing = 0;
             foreach (string name in typeNames)
             {
@@ -1143,6 +2039,16 @@ namespace ManyMoreMobs
             }
 
             mod.Logger.Info($"[MMM] IL patched: boss health bars — {patched} method(s) across {typeNames.Length - missing} type(s).");
+
+            // Not an error on its own — the pre-filter is allowed to false-positive — but it is the only place
+            // a boss bar that quietly stopped being widened can surface, so name the methods rather than
+            // letting them vanish into the aggregate count above.
+            if (BossBarNoMatch.Count > 0)
+                mod.Logger.Warn(
+                    $"[MMM] boss-bar patch widened NOTHING in {BossBarNoMatch.Count} hooked method(s): " +
+                    string.Join(", ", BossBarNoMatch) +
+                    ". Expected when the byte pre-filter false-positives; if a boss health bar misbehaves at " +
+                    "high slots, start here.");
         }
 
         /// <summary>
@@ -1170,8 +2076,21 @@ namespace ManyMoreMobs
             return false;
         }
 
+        /// <summary>
+        /// Boss-bar methods that were hooked but widened nothing, reported together at the end of
+        /// <see cref="ApplyBossHealthBarPatches"/>.
+        /// <para/>
+        /// This cannot throw the way the other manipulators do — methods are chosen by a byte-level
+        /// pre-filter that is allowed to false-positive, so "widened nothing" is sometimes correct. But it
+        /// must not be MUTE either: the only thing logged was an aggregate "patched N method(s)" count, and
+        /// `patched` counts methods HOOKED, not methods changed. A bar whose real slot bound stopped matching
+        /// would just make that number one smaller, with nothing naming which one.
+        /// </summary>
+        private static readonly List<string> BossBarNoMatch = new List<string>();
+
         // Widen every NPC-index 200 in a boss-bar method. Unlike Patch_AllNpcLoopBounds200 this must not throw
-        // on zero matches: the byte-level pre-filter is allowed to produce false positives.
+        // on zero matches: the byte-level pre-filter is allowed to produce false positives. It records them
+        // instead, so a false positive and a broken anchor are at least distinguishable after the fact.
         private static void Patch_BossBarBounds(ILContext il)
         {
             var c = new ILCursor(il);
@@ -1185,6 +2104,8 @@ namespace ManyMoreMobs
 
             if (count > 0)
                 ModRef?.Logger.Info($"[MMM] boss-bar patch widened {count} NPC index bound(s) in {il.Method.DeclaringType?.Name}.{il.Method.Name}");
+            else
+                BossBarNoMatch.Add($"{il.Method.DeclaringType?.Name}.{il.Method.Name}");
         }
 
         // Old One's Army (DD2) relies on 0-199 NPC scans to find the Eternia Crystal (548) / portals (549),
@@ -1200,7 +2121,24 @@ namespace ManyMoreMobs
             Type npcUtils = typeof(Main).Assembly.GetType("Terraria.Utilities.NPCUtils");
             MethodInfo search = npcUtils?.GetMethods(BindingFlags.Public | BindingFlags.Static)
                 .FirstOrDefault(m => m.Name == "SearchForTarget" && m.GetParameters().Length == 5);
-            Apply(mod, "NPCUtils.SearchForTarget (crystal/NPC targeting)", search, Patch_NpcLoops);
+            // Patch_AllNpcLoopBounds200, NOT Patch_NpcLoops — and the reason is the sharpest trap in this file.
+            //
+            // Patch_NpcLoops only widens a loop whose body references a member whose DECLARING TYPE is
+            // Terraria.NPC. This loop's body is:
+            //
+            //     NPC nPC = Main.npc[i];
+            //     if (nPC.active && nPC.whoAmI != searcher.whoAmI && (npcFilter == null || npcFilter(nPC)))
+            //         ... Vector2.DistanceSquared(position, nPC.Center) ...
+            //
+            // and every one of those members is declared on **Terraria.Entity**, not Terraria.NPC — `active`
+            // (Entity.cs:22), `whoAmI` (:17), `Center` (:85). `Main.npc` is a Terraria.Main field. So the test
+            // found nothing, the heuristic widened nothing, and because it neither throws nor logs on a zero
+            // match, Apply still reported "IL patched" and counted it as applied. A patch that did nothing at
+            // all looked identical to one that worked, in the log AND in /debugnpc.
+            //
+            // The method has exactly one 200 (the loop bound), so the blanket manipulator is exact here, and
+            // it throws when it matches nothing — which is the property that actually matters.
+            Apply(mod, "NPCUtils.SearchForTarget (crystal/NPC targeting)", search, Patch_AllNpcLoopBounds200);
 
             // DD2Event crystal/portal/enemy scans: victory scene, arena hitbox, medal/crystal loot, cleanup.
             Type dd2 = typeof(Main).Assembly.GetType("Terraria.GameContent.Events.DD2Event");
@@ -1421,6 +2359,28 @@ namespace ManyMoreMobs
             }
         }
 
+        /// <summary>
+        /// <c>GetMethod</c> that returns null instead of throwing when the name is overloaded.
+        /// <para/>
+        /// Use this for any name whose overload set cannot be checked against a decompile. A null degrades to
+        /// <c>Apply</c>'s "IL target not found" path, which is counted and reported; an exception escapes to
+        /// <see cref="ApplyAll"/>'s guard and costs every registration after it.
+        /// </summary>
+        private static MethodInfo SafeGetMethod(Type type, string name, BindingFlags flags)
+        {
+            if (type == null)
+                return null;
+            try
+            {
+                return type.GetMethod(name, flags);
+            }
+            catch (AmbiguousMatchException)
+            {
+                ModRef?.Logger.Error($"[MMM] {type.Name}.{name} is ambiguous; patch skipped.");
+                return null;
+            }
+        }
+
         /// <summary>Remember a problem patch by name, bounded so a pathological load can't grow this forever.</summary>
         private static void Record(string name)
         {
@@ -1434,6 +2394,208 @@ namespace ManyMoreMobs
             Instruction instr = c.Next!;
             instr.OpCode = OpCodes.Ldsfld;
             instr.Operand = il.Import(NpcCapField);
+        }
+
+        /// <summary>
+        /// Widen the <c>NPC.brainOfGravity &gt;= 0 &amp;&amp; &lt; 200</c> slot-validity gates.
+        /// <para/>
+        /// Anchored on the FIELD rather than on the literal, because both of its consumers are methods where a
+        /// blanket pass would be catastrophic: <c>Main.DoUpdateInWorld</c> and <c>Player.Update</c> between
+        /// them hold buff ids, dust alphas, a remix-world depth constant and a chase distance, none of which
+        /// is a slot. Matching <c>ldsfld NPC::brainOfGravity</c> and then taking the <c>ldc.i4 200</c> that
+        /// follows it within a few instructions cannot pick up any of those.
+        /// <para/>
+        /// Both call sites are registered, and this throws when it matches nothing, so if the engine ever
+        /// renames or inlines the field the patch fails loudly instead of leaving one site widened and the
+        /// other narrow -- which would be worse than not patching at all, since the gravity effect would then
+        /// read an index that nothing clears.
+        /// </summary>
+        private static void Patch_BrainOfGravityGate(ILContext il)
+        {
+            var instrs = il.Body.Instructions;
+            int count = 0;
+
+            for (int j = 0; j < instrs.Count; j++)
+            {
+                if (instrs[j].OpCode != OpCodes.Ldsfld) continue;
+                if (instrs[j].Operand is not FieldReference fr || fr.Name != "brainOfGravity") continue;
+
+                // The comparison follows within a couple of instructions: ldsfld; ldc.i4 200; <cond branch>.
+                int limit = Math.Min(instrs.Count - 1, j + 4);
+                for (int k = j + 1; k <= limit; k++)
+                {
+                    if (!SafeLdcI4(instrs[k], 200)) continue;
+                    if (instrs[k].Next == null || instrs[k].Next.OpCode.FlowControl != FlowControl.Cond_Branch)
+                        continue;
+
+                    instrs[k].OpCode = OpCodes.Ldsfld;
+                    instrs[k].Operand = il.Import(NpcCapField);
+                    count++;
+                    break;
+                }
+            }
+
+            if (count == 0)
+                throw new Exception("no brainOfGravity slot gate found");
+
+            ModRef?.Logger.Info($"[MMM] brainOfGravity gate widened in {il.Method.Name}: {count}");
+        }
+
+        /// <summary>
+        /// <c>NPC.SpawnBoss</c>'s NewNPC-success sentinels, and ONLY the ones that are not a multiplayer
+        /// broadcast guard.
+        /// <para/>
+        /// The method holds three 200s and they belong to two different owners. Two are the single-player
+        /// sentinel — <c>int num = 200;</c> and <c>if (num == 200) return;</c> — which this file fixes.
+        /// The third, <c>if (Main.netMode == 2 &amp;&amp; num &lt; 200)</c>, is a server broadcast guard owned by
+        /// <c>MMMultiplayer.MultiplayerNetPatcher.Patch_ServerBroadcastGuards</c>, which routes it through
+        /// <c>MpNetGuards.IndexLimit()</c> so the multiplayer config toggle can still switch it off.
+        /// <para/>
+        /// A blanket pass here was correct in its result but wrong in its bookkeeping: it consumed all three
+        /// literals, so the multiplayer patcher then matched nothing, threw, and logged
+        /// "broadcast guards in SpawnBoss not patched (skipped)". That log line is read during bug triage,
+        /// and a false failure in it is worse than no line at all. It also quietly took one site out of the
+        /// multiplayer toggle's control.
+        /// <para/>
+        /// So the discriminator is deliberately the same one the multiplayer patcher uses, inverted: skip any
+        /// literal preceded within six real instructions by a read of <c>Main.netMode</c>. Whichever of the
+        /// two patchers runs first, each takes only its own sites and both report honestly.
+        /// </summary>
+        private static void Patch_SpawnBossSentinel(ILContext il)
+        {
+            var instrs = il.Body.Instructions;
+            int count = 0;
+
+            for (int j = 0; j < instrs.Count; j++)
+            {
+                if (!SafeLdcI4(instrs[j], 200))
+                    continue;
+
+                bool afterNetModeRead = false;
+                for (int b = j - 1, seen = 0; b >= 0 && seen < 6; b--)
+                {
+                    if (instrs[b].OpCode == OpCodes.Nop)
+                        continue;
+                    seen++;
+                    if (instrs[b].OpCode == OpCodes.Ldsfld
+                        && instrs[b].Operand is FieldReference fr
+                        && fr.Name == "netMode")
+                    {
+                        afterNetModeRead = true;
+                        break;
+                    }
+                }
+                if (afterNetModeRead)
+                    continue;
+
+                instrs[j].OpCode = OpCodes.Ldsfld;
+                instrs[j].Operand = il.Import(NpcCapField);
+                count++;
+            }
+
+            if (count == 0)
+                throw new Exception("no single-player NewNPC sentinel found in SpawnBoss");
+
+            ModRef?.Logger.Info($"[MMM] SpawnBoss spawn-failure sentinels widened: {count}");
+        }
+
+        /// <summary>
+        /// <c>NPC.VanillaHitEffect</c> - Daybreak's on-death debuff spread, and ONLY that loop.
+        /// <para/>
+        /// This is the method that proves the npc-loop heuristic is not a general answer. That heuristic
+        /// widens a backward-branch <c>&lt; 200</c> loop when its body references any member declared on
+        /// <c>Terraria.NPC</c> - a test that discriminates beautifully inside <c>Projectile</c>, where a dust
+        /// loop touches <c>Projectile</c> members instead. Inside <c>NPC</c> it discriminates nothing:
+        /// <c>Dust.NewDust(position, width, height, ...)</c> reads <c>position</c>, <c>width</c> and
+        /// <c>height</c>, all of which ARE members declared on NPC. So the heuristic would happily widen the
+        /// two 200-particle dust loops at the tail of this method and spray 750 particles per hit.
+        /// <para/>
+        /// Hence the anchor: take the loop bound whose BODY contains <c>ldc.i4 189</c> - the Daybreak buff id,
+        /// read once for <c>buffImmune[189]</c> and again for <c>AddBuff(189, 300)</c>. Neither dust loop
+        /// mentions it. If the engine ever renumbers that buff this throws rather than silently widening the
+        /// wrong loop, which is the correct direction to fail in.
+        /// </summary>
+        private static void Patch_DaybreakSpread(ILContext il)
+        {
+            var instrs = il.Body.Instructions;
+            int count = 0;
+
+            for (int j = 0; j < instrs.Count; j++)
+            {
+                if (!SafeLdcI4(instrs[j], 200) || !TryFindLoopBodyStart(instrs, j, out int target))
+                    continue;
+
+                bool daybreak = false;
+                for (int b = target; b < j; b++)
+                {
+                    if (SafeLdcI4(instrs[b], 189)) { daybreak = true; break; }
+                }
+                if (!daybreak)
+                    continue;
+
+                instrs[j].OpCode = OpCodes.Ldsfld;
+                instrs[j].Operand = il.Import(NpcCapField);
+                count++;
+            }
+
+            if (count != 1)
+                throw new Exception($"expected exactly one Daybreak-buff loop, found {count}");
+        }
+
+        /// <summary>
+        /// <c>NPC.CanReleaseNPCs</c> — the gate on releasing a caught critter (bug net, bucket, anything
+        /// catchable). The first find made by the audit's FLOATGUARD detector rather than by a bug report.
+        /// <para/>
+        /// Three separate 200s decide one answer, and they are not the same type:
+        /// <code>
+        ///   for (int i = 0; i &lt; 200; i++)      // count active NPCs        -> ldc.i4 200
+        ///   int quota = (int)(200f * f / players);                            -> ldc.r4 200
+        ///   if ((float)count &lt; 200f * f &amp;&amp; mine &lt; quota) return true;      -> ldc.r4 200
+        /// </code>
+        /// <c>f</c> is 0.75 single-player, 0.7 in multiplayer, so vanilla's rule is "no releasing once the
+        /// array is three-quarters full, and no one player may own more than their share".
+        /// <para/>
+        /// This one is a TRAP, and worth understanding before touching anything shaped like it. Widening only
+        /// the loop — which is all any blanket patch in this file is capable of doing, since the other two are
+        /// <c>ldc.r4</c> and <see cref="SafeLdcI4"/> cannot see them — leaves the count ranging over 750 slots
+        /// while the ceiling stays at 150. Critter release would then stop working for the rest of the world's
+        /// life the moment 150 NPCs are active, which under a raised cap is essentially always. The half-fix
+        /// is strictly worse than the no-fix, and nothing in the report would have flagged it: the loop would
+        /// simply have flipped from GAP to PATCHED.
+        /// <para/>
+        /// Untouched, the bug is mild and in the permissive direction: the count only sees slots 0-199, which
+        /// under our top-down allocation hold Town and Boss NPCs almost exclusively, so it reads near zero and
+        /// the gate never refuses. Vanilla's anti-spam limit is simply absent. Scaling all three together
+        /// restores the intent at whatever cap is configured.
+        /// <para/>
+        /// The <c>255</c> player-count loop in the same method is a player bound, not an NPC bound, and must
+        /// survive — which is why this is anchored on the literal TYPE rather than blanket-replacing.
+        /// </summary>
+        private static void Patch_CanReleaseNPCs(ILContext il)
+        {
+            var c = new ILCursor(il);
+            int bounds = 0;
+            while (c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
+            {
+                ReplaceWithNpcCap(c, il);
+                c.Index++;
+                bounds++;
+            }
+
+            var cf = new ILCursor(il);
+            int ceilings = 0;
+            while (cf.TryGotoNext(MoveType.Before, i => SafeLdcR4(i, 200f)))
+            {
+                ReplaceWithNpcCap(cf, il);   // pushes an int...
+                cf.Index++;
+                cf.Emit(OpCodes.Conv_R4);    // ...which the float multiply below needs as a float
+                ceilings++;
+            }
+
+            // Both halves or neither. A partial match here is the failure mode described above, so it must
+            // throw rather than half-apply — an exception loses this one patch, a half-apply loses bug nets.
+            if (bounds != 1 || ceilings != 2)
+                throw new Exception($"unexpected shape: {bounds} loop bound(s), {ceilings} float ceiling(s); expected 1 and 2");
         }
 
         // Methods that contain exactly one NPC-bound `ldc.i4 200` (GetAvailableNPCSlot, NewNPC return).
@@ -1470,16 +2632,31 @@ namespace ManyMoreMobs
         }
 
         // Replace every `ldsfld Main.maxNPCs` with the literal 200, pinning a method to vanilla behaviour.
-        // Does not throw on zero matches: if the JIT already baked maxNPCs to 200, there is nothing to do.
+        //
+        // THROWS on zero matches. This used to be silent, justified as "if the JIT already baked maxNPCs to
+        // 200, there is nothing to do" — which is wrong twice: a manipulator rewrites IL, where the field read
+        // is always present, and the JIT has not run yet anyway. Both current targets (WorldIO.SaveNPCs and
+        // LoadNPCs) read `Main.maxNPCs` live, several times each, so a zero match cannot be the benign case.
+        // It can only mean the anchor stopped matching.
+        //
+        // Being silent here was the most expensive silence in the file: these two patches are what stop a
+        // world saved at the raised cap from being written with vanilla's bounds, and Apply() would still log
+        // "IL patched: WorldIO.SaveNPCs" with nothing behind it. Failing loudly costs one skipped patch and a
+        // logged error; failing quietly costs a save file.
         private static void Patch_ForceVanilla200(ILContext il)
         {
             var c = new ILCursor(il);
+            int count = 0;
             while (c.TryGotoNext(MoveType.Before, i => i.MatchLdsfld(MaxNPCsField)))
             {
                 c.Next.OpCode = OpCodes.Ldc_I4;
                 c.Next.Operand = 200;
                 c.Index++;
+                count++;
             }
+
+            if (count == 0)
+                throw new Exception("no `ldsfld Main.maxNPCs` found to pin to 200");
         }
 
         // DoUpdateInWorld: anchor on the `npc[l].UpdateNPC(l)` call, then patch the next loop bound.

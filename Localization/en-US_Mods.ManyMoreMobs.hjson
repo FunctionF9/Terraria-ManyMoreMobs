@@ -460,7 +460,8 @@ Configs: {
 			Tooltip:
 				'''
 				Lets one true-melee swing (sword / whip) hit EVERY enemy in its arc instead of just one per frame, each enemy still has its own hit cooldown.
-				Affects swung weapons only, not projectiles. Defaults ON, since single-target melee really struggles against the crowds this mod can throw at you.
+				Defaults ON, since single-target melee really struggles against the crowds this mod can throw at you.
+				Also makes the per-enemy hit cooldown count down for swords that attack through a projectile (Night's Edge, Terra Blade and the like), which the game otherwise never ticks for them. That is a safety measure rather than a damage increase: it stops a stuck cooldown from leaving an enemy unhittable.
 				'''
 		}
 

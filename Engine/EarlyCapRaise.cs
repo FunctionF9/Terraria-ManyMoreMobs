@@ -66,6 +66,15 @@ namespace ManyMoreMobs
         internal static bool Applied { get; private set; }
 
         /// <summary>
+        /// The total this early raise actually sized other mods' NPC arrays for, or 0 if it never ran.
+        /// <para/>
+        /// Kept so <see cref="MaxNpcCapRaise.PostSetupContent"/> can compare it against the config value the
+        /// game ends up actually using. In single-player the two always agree. In multiplayer they can
+        /// silently disagree, and the disagreement is dangerous — see the note there.
+        /// </summary>
+        internal static int AppliedTotal { get; private set; }
+
+        /// <summary>
         /// First <c>Main.npc</c> slot this class created, or <see cref="int.MaxValue"/> if it created none.
         /// <see cref="EngineArrayResizer"/> picks the fill loop back up here, so the slots we allocated bare
         /// still get their <c>SetDefaults</c> pass once the content that hook needs actually exists.
@@ -96,6 +105,7 @@ namespace ManyMoreMobs
 
                 EngineState.NpcCap = total;
                 SetMaxNPCs(total);
+                AppliedTotal = total;
                 Applied = true;
 
                 PendingLog.Add($"[MMM] Early cap raise: Main.maxNPCs = {total} before any mod loaded content " +

@@ -19,3 +19,6 @@ obj/
 Thumbs.db
 desktop.ini
 *.stackdump
+
+# Python bytecode from tools/
+__pycache__/

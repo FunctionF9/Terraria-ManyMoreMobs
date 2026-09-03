@@ -75,6 +75,13 @@ namespace ManyMoreMobs
             _patchesApplied = true;
         }
 
+        /// <summary>
+        /// Non-null when the early cap raise and the active config disagree about the total — see the note in
+        /// <see cref="PostSetupContent"/>. Surfaced by <c>/debugnpc info</c> so a player can report it without
+        /// having to find the log.
+        /// </summary>
+        internal static string CapMismatch { get; private set; }
+
         public override void PostSetupContent()
         {
             // PostSetupContent runs AFTER tModLoader has finished its own content/array setup (instanced
@@ -85,6 +92,51 @@ namespace ManyMoreMobs
 
             var config = ModContent.GetInstance<ManyMoreMobsConfig>();
             int total = config.MaxNPCTotal;
+
+            // ── Multiplayer config-mismatch detection ────────────────────────────────────────────────────
+            //
+            // EarlyCapRaise runs before any mod loads content, so it cannot ask tModLoader for our config —
+            // it reads ModConfigs/ManyMoreMobs_ManyMoreMobsConfig.json off disk directly. That is correct in
+            // single-player and WRONG on a modded server join, because of how tModLoader applies a
+            // server-supplied config:
+            //
+            //     ConfigManager.Load()  —  if (config.Mode == ServerSide && ModNet.NetReloadActive) {
+            //                                  PopulateObject(ModNet.pendingConfigs...);  return;  }
+            //
+            // The server's values are populated into MEMORY and the method returns without reading or
+            // writing the file. So during the forced reload on join, EarlyCapRaise reads the CLIENT's stale
+            // local number while every runtime read gets the SERVER's.
+            //
+            // The dangerous direction is client-lower-than-server (including the client having CapMode set
+            // to Default, which skips the early raise entirely). Other mods then allocate their NPC-indexed
+            // arrays for the small number during their own Load(), and the raise below moves Main.maxNPCs up
+            // to the server's number afterwards — which is precisely the crash EarlyCapRaise exists to
+            // prevent, reappearing in multiplayer. It surfaces as an IndexOutOfRangeException inside an
+            // unrelated mod, or as no enemies spawning at all, with nothing pointing at us.
+            //
+            // We cannot repair another mod's already-allocated arrays, so this does not try to. It makes the
+            // failure DIAGNOSABLE instead of silent, which is the whole difference between a rough feature
+            // and an undebuggable one. The player's fix is to set their local config to match the server's.
+            if (EarlyCapRaise.Applied && EarlyCapRaise.AppliedTotal != total)
+            {
+                CapMismatch = $"early raise sized other mods' arrays for {EarlyCapRaise.AppliedTotal}, " +
+                              $"but the active config says {total}";
+                Mod.Logger.Error(
+                    $"[MMM] CONFIG MISMATCH: {CapMismatch}. This happens when your local cap settings differ " +
+                    "from the server's: the early raise reads your own config file, while the game then uses " +
+                    "the server's. Other mods may have sized their NPC arrays for the wrong number, which can " +
+                    "crash them or stop enemies spawning. Set your Max NPC Total and Cap Mode to match the " +
+                    "server and rejoin.");
+            }
+            else if (!EarlyCapRaise.Applied && total > 200)
+            {
+                CapMismatch = $"early raise did not run, but the active config asks for {total}";
+                Mod.Logger.Warn(
+                    $"[MMM] {CapMismatch}. If you are joining a server, your local Cap Mode is probably " +
+                    "Default while the server's is Expanded. Other mods will have sized their NPC arrays " +
+                    "for 200. Set your local config to match the server and rejoin.");
+            }
+
             if (total <= 200)
             {
                 Mod.Logger.Info($"[MMM] Cap raise target ({total}) <= 200; nothing to do.");
@@ -95,7 +147,7 @@ namespace ManyMoreMobs
             {
                 EngineArrayResizer.Grow(total, Mod);
                 EngineState.NpcCap = total;  // what the IL-patched gameplay loops read
-                SetMaxNPCs(total);           // for engine code that reads Main.maxNPCs live (save/load is pinned to 200)
+                SetMaxNPCs(total);           // for engine code that reads Main.maxNPCs live (see the note below on saving)
                 _applied = true;
                 Mod.Logger.Info($"[MMM] NPC cap raised to {total} (Main.maxNPCs={(int)MaxNPCsField.GetValue(null)}, AppliedCap={AppliedCap}).");
             }
@@ -110,9 +162,17 @@ namespace ManyMoreMobs
 
         public override void OnWorldLoad()
         {
-            // The bonus slot zone (200+) is session-only — never saved/loaded (save/load is pinned to vanilla
-            // 200). Clear it on every world load so high-slot NPCs from a previous session don't persist
-            // ("don't reset on reload") and can't leave the array in a stale state.
+            // The bonus slot zone (200+) is session-only. Clear it on every world load so high-slot NPCs from
+            // a previous session don't persist ("don't reset on reload") and can't leave the array in a stale
+            // state.
+            //
+            // On saving, be precise — an earlier version of this comment said "save/load is pinned to vanilla
+            // 200", which is only half true and would mislead anyone reasoning from it. tModLoader's
+            // WorldIO.SaveNPCs/LoadNPCs ARE forced back to 200 by Patch_ForceVanilla200. Vanilla's own
+            // WorldFile.SaveNPCs is NOT: it iterates Main.npc.Length, so 751 under a raised cap. That is
+            // harmless and arguably correct — it only writes town NPCs and NPCID.Sets.SavesAndLoads types
+            // (just the four Lunar Pillars), and WorldFile.LoadNPCs re-packs them from slot 0 upward, so a
+            // high-slot town NPC survives a save rather than being silently dropped.
             //
             // This runs even when the cap raise is OFF: if the player toggled the raise off and reloaded, the
             // array can still be grown (751) and hold stale NPCs in slots 200+ from the previous (raised)
