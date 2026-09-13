@@ -8,12 +8,20 @@ using Terraria.ModLoader;
 
 namespace ManyMoreMobs
 {
-    public class DebugCommands : ModCommand
+    /// <summary>
+    /// The player-facing command surface: read-only inspection anyone can be asked to run, with no config
+    /// change and nothing that alters the world.
+    /// <para/>
+    /// Split out from the developer commands because the two have different audiences. This is the set that
+    /// goes in a Workshop reply, so it has to be short to type, obviously this mod's, and safe to hand to
+    /// someone who has never used a chat command — a reporter mistyping a spawn or kill command while trying
+    /// to file a bug report helps nobody.
+    /// </summary>
+    public class MmmCommand : ModCommand
     {
-        public override string Command => "debugnpc";
-        public override string Usage =>
-            "/debugnpc <info|version|counts|dump|dumpall|validate|modarrays|spawninfo|blocked|event|immune|hittest|track|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
-        public override string Description => "Many More Mobs debug: inspect counts/state/spawn rate, validate arrays, test spawning. Full reports go to ManyMoreMobs-state.log (on the SERVER's machine in multiplayer; the summary still comes back to you in chat).";
+        public override string Command => "mmm";
+        public override string Usage => "/mmm <info|version|counts|dump|blocked|spawninfo>";
+        public override string Description => "Many More Mobs: inspect what the mod is doing. Start with /mmm info. Full reports also go to ManyMoreMobs-state.log (on the SERVER's machine in multiplayer; the summary still comes back to you in chat).";
 
         public override CommandType Type => CommandType.Chat;
 
@@ -25,6 +33,70 @@ namespace ManyMoreMobs
                 return;
             }
 
+            string sub = args[0].ToLower();
+            if (!DebugCommands.PlayerFacing.Contains(sub))
+            {
+                // Point at the right command rather than just refusing — the split is new and the failure is
+                // otherwise indistinguishable from a typo.
+                caller.Reply(DebugCommands.IsKnown(sub)
+                    ? $"[MMM] '{sub}' is a developer command — run /mmmdebug {sub}"
+                    : Usage);
+                return;
+            }
+
+            DebugCommands.Dispatch(caller, args, Usage);
+        }
+    }
+
+    /// <summary>
+    /// The developer command surface. A superset: everything on <see cref="MmmCommand"/> works here too, so
+    /// there is one prefix to type while working rather than having to remember which side a subcommand
+    /// landed on. Holds the diagnostics that write large reports, the trackers, and the world-altering test
+    /// helpers (spawn / kill / boss).
+    /// </summary>
+    public class MmmDebugCommand : ModCommand
+    {
+        public override string Command => "mmmdebug";
+        public override string Usage =>
+            "/mmmdebug <info|version|counts|dump|dumpall|validate|modarrays|spawninfo|blocked|event|immune|hittest|track|perf [now]|slot <i>|spawn [town|enemy|critter|boss|rare|truffle|<typeId>] [amount]|boss [name]|kill|killall>";
+        public override string Description => "Many More Mobs developer tools: full dumps, array validation, hit/perf tracking, and spawn testing. Reports go to ManyMoreMobs-state.log.";
+
+        public override CommandType Type => CommandType.Chat;
+
+        public override void Action(CommandCaller caller, string input, string[] args)
+        {
+            if (args.Length == 0)
+            {
+                caller.Reply(Usage);
+                return;
+            }
+
+            DebugCommands.Dispatch(caller, args, Usage);
+        }
+    }
+
+    public static class DebugCommands
+    {
+        /// <summary>
+        /// Subcommands safe to give a bug reporter: read-only, no config requirement, no world changes.
+        /// Everything not in here is developer-only and lives behind <c>/mmmdebug</c>.
+        /// </summary>
+        internal static readonly HashSet<string> PlayerFacing = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "info", "version", "counts", "dump", "blocked", "blockinfo", "spawninfo",
+        };
+
+        private static readonly HashSet<string> DeveloperOnly = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "dumpall", "dump_all", "validate", "modarrays", "event", "immune", "hittest",
+            "track", "perf", "slot", "spawn", "boss", "kill", "killall",
+        };
+
+        /// <summary>Whether this is a real subcommand at all, so a wrong-surface hint isn't given for a typo.</summary>
+        internal static bool IsKnown(string sub) => PlayerFacing.Contains(sub) || DeveloperOnly.Contains(sub);
+
+        internal static void Dispatch(CommandCaller caller, string[] args, string usage)
+        {
             switch (args[0].ToLower())
             {
                 // The triage command — the one to give a non-technical reporter. Prints OK/WARN per subsystem
@@ -32,7 +104,7 @@ namespace ManyMoreMobs
                 case "info":
                 {
                     string report = EngineDiagnostics.BuildInfoReport(caller.Player);
-                    MmmLog.Dump("/debugnpc info", report);
+                    MmmLog.Dump("/mmm info", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
                         caller.Reply(line.TrimEnd());
                     break;
@@ -45,7 +117,7 @@ namespace ManyMoreMobs
                 case "dump":
                 {
                     string report = EngineDiagnostics.BuildStateReport();
-                    MmmLog.Dump("/debugnpc dump", report);
+                    MmmLog.Dump("/mmm dump", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
                         caller.Reply(line.TrimEnd());
                     caller.Reply("[MMM] full dump written to ManyMoreMobs-state.log");
@@ -59,7 +131,7 @@ namespace ManyMoreMobs
                     // The summary block is what a human needs in the moment; the census is for reading back
                     // out of the log afterwards.
                     string report = EngineDiagnostics.BuildFullDumpReport(out int problems);
-                    MmmLog.Dump("/debugnpc dumpall", report);
+                    MmmLog.Dump("/mmmdebug dumpall", report);
                     foreach (string line in report.Split('\n'))
                     {
                         if (line.StartsWith("--- byType", StringComparison.Ordinal))
@@ -77,7 +149,7 @@ namespace ManyMoreMobs
                 case "blockinfo":
                 {
                     string report = EngineDiagnostics.BuildBlockedReport(caller.Player);
-                    MmmLog.Dump("/debugnpc blocked", report);
+                    MmmLog.Dump("/mmm blocked", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
                         caller.Reply(line.TrimEnd());
                     break;
@@ -86,7 +158,7 @@ namespace ManyMoreMobs
                 case "spawninfo":
                 {
                     string report = EngineDiagnostics.BuildSpawnInfoReport(caller.Player);
-                    MmmLog.Dump("/debugnpc spawninfo", report);
+                    MmmLog.Dump("/mmm spawninfo", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
                         caller.Reply(line.TrimEnd());
                     break;
@@ -95,7 +167,7 @@ namespace ManyMoreMobs
                 case "event":
                 {
                     string report = EngineDiagnostics.BuildEventReport();
-                    MmmLog.Dump("/debugnpc event", report);
+                    MmmLog.Dump("/mmmdebug event", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
                         caller.Reply(line.TrimEnd());
                     break;
@@ -104,7 +176,7 @@ namespace ManyMoreMobs
                 case "immune":
                 {
                     string report = EngineDiagnostics.BuildImmunityReport(caller.Player);
-                    MmmLog.Dump("/debugnpc immune", report);
+                    MmmLog.Dump("/mmmdebug immune", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
                         caller.Reply(line.TrimEnd());
                     break;
@@ -113,7 +185,7 @@ namespace ManyMoreMobs
                 case "hittest":
                 {
                     string report = EngineDiagnostics.BuildHitTestReport(caller.Player);
-                    MmmLog.Dump("/debugnpc hittest", report);
+                    MmmLog.Dump("/mmmdebug hittest", report);
                     caller.Reply(report);
                     break;
                 }
@@ -126,7 +198,7 @@ namespace ManyMoreMobs
                     // nothing reads as "no problem found" when it means "never measured".
                     if (Main.netMode != NetmodeID.SinglePlayer)
                     {
-                        caller.Reply("[MMM] /debugnpc track is single-player only — it hooks client-side projectile updates and would log nothing here.");
+                        caller.Reply("[MMM] /mmmdebug track is single-player only — it hooks client-side projectile updates and would log nothing here.");
                         break;
                     }
 
@@ -135,10 +207,39 @@ namespace ManyMoreMobs
                     break;
                 }
 
+                // Per-tick timing. Gated behind Debug Mode rather than being toggle-only like `track`,
+                // because this one installs PreAI/PostAI timers on EVERY npc and projectile — the cost is
+                // small but it is paid by entities the player never asked us to touch, so it should not be
+                // reachable at all on an ordinary setup. Everything stays off until the config says otherwise.
+                case "perf":
+                {
+                    if (ModContent.GetInstance<ManyMoreMobsConfig>()?.DebugMode != true)
+                    {
+                        caller.Reply("[MMM] /mmmdebug perf needs Debug Mode enabled (Mod Config -> Many More Mobs -> Debug).");
+                        break;
+                    }
+
+                    // `now` snapshots mid-run without stopping — the point being to capture a bad moment
+                    // while it is happening, rather than having to end the run to see anything.
+                    if (args.Length > 1 && args[1].Equals("now", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!PerfTracker.Enabled)
+                        {
+                            caller.Reply("[MMM] perf sampling is not running — /mmmdebug perf to start it.");
+                            break;
+                        }
+                        caller.Reply("[MMM] " + PerfTracker.WriteReport("/mmmdebug perf now (snapshot, still running)"));
+                        break;
+                    }
+
+                    caller.Reply("[MMM] " + PerfTracker.Toggle());
+                    break;
+                }
+
                 case "modarrays":
                 {
                     string report = ModArrayScanner.Build(out int stale);
-                    MmmLog.Dump("/debugnpc modarrays", report);
+                    MmmLog.Dump("/mmmdebug modarrays", report);
                     caller.Reply(stale == 0
                         ? "[MMM] modarrays: every mod array found is sized for the raised cap. (details in ManyMoreMobs-state.log)"
                         : $"[MMM] modarrays: {stale} array(s) still sized for 200 — see ManyMoreMobs-state.log for which mod");
@@ -148,7 +249,7 @@ namespace ManyMoreMobs
                 case "validate":
                 {
                     string report = EngineDiagnostics.BuildValidationReport(out int anomalies);
-                    MmmLog.Dump("/debugnpc validate", report);
+                    MmmLog.Dump("/mmmdebug validate", report);
                     caller.Reply(anomalies == 0
                         ? "[MMM] validate: no anomalies. (details in ManyMoreMobs-state.log)"
                         : $"[MMM] validate: {anomalies} ANOMALIES — see ManyMoreMobs-state.log");
@@ -159,11 +260,11 @@ namespace ManyMoreMobs
                 {
                     if (args.Length < 2 || !int.TryParse(args[1], out int index))
                     {
-                        caller.Reply("Usage: /debugnpc slot <index>");
+                        caller.Reply("Usage: /mmmdebug slot <index>");
                         break;
                     }
                     string report = EngineDiagnostics.BuildSlotReport(index);
-                    MmmLog.Dump($"/debugnpc slot {index}", report);
+                    MmmLog.Dump($"/mmmdebug slot {index}", report);
                     foreach (string line in report.TrimEnd().Split('\n'))
                         caller.Reply(line.TrimEnd());
                     break;
@@ -183,7 +284,7 @@ namespace ManyMoreMobs
                 {
                     if (args.Length < 2)
                     {
-                        caller.Reply("Usage: /debugnpc boss <name>");
+                        caller.Reply("Usage: /mmmdebug boss <name>");
                         caller.Reply("Known: " + string.Join(", ", BossList));
                         break;
                     }
@@ -232,7 +333,7 @@ namespace ManyMoreMobs
                     break;
 
                 default:
-                    caller.Reply(Usage);
+                    caller.Reply(usage);
                     break;
             }
         }

@@ -11,7 +11,7 @@ namespace ManyMoreMobs
     /// to find and parse. Writes two files next to client.log (in tModLoader-Logs):
     /// <list type="bullet">
     /// <item><c>ManyMoreMobs-debug.log</c> — runtime breadcrumbs + de-duplicated exception reports.</item>
-    /// <item><c>ManyMoreMobs-state.log</c> — full state/validation dumps (from <c>/debugnpc</c> and auto hooks).</item>
+    /// <item><c>ManyMoreMobs-state.log</c> — full state/validation dumps (from <c>/mmmdebug</c> and auto hooks).</item>
     /// </list>
     /// Both are truncated at the start of each session. A one-line pointer is still echoed to client.log so
     /// it's discoverable. All writes are locked and never allowed to throw into game code.

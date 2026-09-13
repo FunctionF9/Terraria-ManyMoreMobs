@@ -6,7 +6,8 @@ Configs: {
 			Mode: 1. Mode - world NPC capacity
 			CategoryCaps: 2. NPC slots per category
 			SpawnRate: 3. Spawn rate and density
-			DebugAndExperimental: 4. Debugging & Experimental
+			Performance: 4. Performance
+			DebugAndExperimental: 5. Debugging & Experimental
 		}
 
 		SpawnRateMultiplier: {
@@ -134,6 +135,37 @@ Configs: {
 				'''
 		}
 
+		FastHostileProjectileScan: {
+			Label: Fast Enemy Projectile Scan
+			Tooltip:
+				'''
+				The big one for frame rate. Leave this on.
+
+				Every enemy projectile searches the whole NPC list each tick for something to hit, even
+				though the only thing it can actually damage is a town NPC. With a raised cap that single
+				search was 95% of all projectile time - it is what turns a screen full of harpies or
+				spike slimes into a slideshow.
+
+				On, enemy projectiles stop searching past the last town NPC.
+				Your own weapons are not affected and still reach every enemy.
+				'''
+		}
+
+		FastScanEvenWithOtherMods: {
+			Label: Fast Scan Even With Other Mods
+			Tooltip:
+				'''
+				Only matters if the load log says the fast scan was held back.
+
+				Some mods let enemy projectiles damage other enemies. The fast scan above cannot tell
+				that apart, so when such a mod is loaded it switches itself off and names the mod in the
+				log, keeping the old (correct, slower) behaviour.
+
+				Turn this on to use the fast scan anyway: you get the frame rate back, and enemies will
+				stop damaging each other.
+				'''
+		}
+
 		DebugMode: {
 			Label: Debug Mode
 			Tooltip:
@@ -141,7 +173,7 @@ Configs: {
 				! Leave this off for normal play.
 
 				Auto-writes diagnostics to ManyMoreMobs-state.log on world load and before each save.
-				/debugnpc commands always log anyway.
+				/mmm and /mmmdebug commands always log anyway. Needed for /mmmdebug perf.
 				'''
 		}
 

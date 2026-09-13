@@ -57,7 +57,7 @@ namespace ManyMoreMobs
         /// not skip one patch: it fails the whole mod's load.
         /// <para/>
         /// Catching here degrades that to "the patches registered so far stay, the rest do not, and the log
-        /// and <c>/debugnpc info</c> both say so loudly." A partly-patched engine is a bad state, but it is a
+        /// and <c>/mmm info</c> both say so loudly." A partly-patched engine is a bad state, but it is a
         /// reportable one, and it is strictly better than a mod that will not load at all.
         /// </summary>
         public static void ApplyAll(Mod mod)
@@ -81,7 +81,7 @@ namespace ManyMoreMobs
         }
 
         /// <summary>Non-null if <see cref="ApplyAll"/> aborted before finishing; surfaced by
-        /// <c>/debugnpc info</c> so a player can report it without finding the log.</summary>
+        /// <c>/mmm info</c> so a player can report it without finding the log.</summary>
         internal static string RegistrationAborted { get; private set; }
 
         private static void ApplyAllCore(Mod mod)
@@ -132,7 +132,7 @@ namespace ManyMoreMobs
 
             Apply(mod, "Projectile.Damage",
                 typeof(Projectile).GetMethod("Damage", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null),
-                Patch_AllNpcLoopBounds200);
+                Patch_DamageHitScanBounds);
 
             // Projectile.Update's per-frame `localNPCImmunity` decrement loop is hardcoded `< 200`, so a
             // projectile's hit-cooldown to enemies in slots 200+ never clears — minions/sentries hit each such
@@ -2134,7 +2134,7 @@ namespace ManyMoreMobs
             // (Entity.cs:22), `whoAmI` (:17), `Center` (:85). `Main.npc` is a Terraria.Main field. So the test
             // found nothing, the heuristic widened nothing, and because it neither throws nor logs on a zero
             // match, Apply still reported "IL patched" and counted it as applied. A patch that did nothing at
-            // all looked identical to one that worked, in the log AND in /debugnpc.
+            // all looked identical to one that worked, in the log AND in /mmmdebug.
             //
             // The method has exactly one 200 (the loop bound), so the blanket manipulator is exact here, and
             // it throws when it matches nothing — which is the property that actually matters.
@@ -2325,7 +2325,7 @@ namespace ManyMoreMobs
             catch { return false; }
         }
 
-        // ── Patch tally, for /debugnpc info ──
+        // ── Patch tally, for /mmm info ──
         // A failed patch is the single most diagnostic fact about a content-mod conflict: another mod rewrote
         // the same method first and our anchor no longer matches. It was only ever an Error line in client.log,
         // which a player reporting a bug has no reason to open. Counted here so the triage command can say
@@ -2616,6 +2616,67 @@ namespace ManyMoreMobs
 
         // Methods whose every `ldc.i4 200` is an NPC-loop bound (combat methods, verified by decompilation).
         // Replaces all of them; throws only if none are found (so engine changes fail loudly, not silently).
+        // Projectile.Damage, same idea as Patch_AllNpcLoopBounds200 but routed through a per-projectile
+        // decision instead of straight to the cap: `HostileHitScan.ScanBound(this)`.
+        //
+        // Damage() holds four `< 200` NPC loops. Only the first — the main hit scan — is reachable by a
+        // HOSTILE projectile; the other three sit behind `type == 477`, `type == 10` and `type == 11 || 463`,
+        // all player weapons, so ScanBound hands them the full cap anyway. That is why this rewrites every
+        // match rather than trying to single one out: a bound that is correct for all four needs no anchor,
+        // and an anchored patch here would be exactly the kind that silently stops matching after an update.
+        //
+        // The call is HOISTED to the top of the method and cached in a local, and each `ldc.i4 200` becomes a
+        // read of that local. It must not be emitted in place of the literal: a C# `for (i = 0; i < N; i++)`
+        // compiles its bound into the per-iteration condition, which the engine's own IL confirms —
+        //
+        //     IL_47bc: ldloc.s 15      // i
+        //     IL_47be: ldc.i4 200      // <- the literal we replace
+        //     IL_47c3: clt
+        //     IL_47c5: ldloc.s 13      // flag4
+        //     IL_47c7: and
+        //     IL_47c8: brtrue IL_0aa7  // back edge
+        //
+        // so substituting the call there would run it once PER NPC. Hostile projectiles would barely notice
+        // (their bound is tiny, so the loop turns over a couple of times), but every friendly projectile would
+        // make one call per slot — thousands per projectile per tick, on the player's own weapons. That is a
+        // measurable cost added to the exact path this patch is not supposed to touch.
+        //
+        // Hoisting is also the more correct shape. `Damage()` is one projectile in one tick, so the bound
+        // cannot legitimately change part-way through; evaluating it per iteration left it free to move under
+        // a running loop (NoteFriendlySlot can grow it mid-tick), which is a race with nothing to gain.
+        private static void Patch_DamageHitScanBounds(ILContext il)
+        {
+            MethodInfo scanBound = typeof(HostileHitScan).GetMethod(
+                nameof(HostileHitScan.ScanBound), BindingFlags.Public | BindingFlags.Static);
+            if (scanBound == null)
+                throw new Exception("HostileHitScan.ScanBound not found");
+
+            var bound = new VariableDefinition(il.Import(typeof(int)));
+            il.Body.Variables.Add(bound);
+
+            // `int bound = HostileHitScan.ScanBound(this);` before anything else runs. Damage() is an instance
+            // method with no parameters, so ldarg.0 is `this`.
+            var c = new ILCursor(il) { Index = 0 };
+            c.Emit(OpCodes.Ldarg_0);
+            c.Emit(OpCodes.Call, il.Import(scanBound));
+            c.Emit(OpCodes.Stloc, bound);
+
+            // Mutated in place rather than removed and re-emitted, so the loop's back-edge branch target
+            // survives untouched.
+            int count = 0;
+            while (c.TryGotoNext(MoveType.Before, i => SafeLdcI4(i, 200)))
+            {
+                Instruction instr = c.Next!;
+                instr.OpCode = OpCodes.Ldloc;
+                instr.Operand = bound;
+                c.Index++;
+                count++;
+            }
+
+            if (count == 0)
+                throw new Exception("no `ldc.i4 200` found in Projectile.Damage");
+        }
+
         private static void Patch_AllNpcLoopBounds200(ILContext il)
         {
             var c = new ILCursor(il);

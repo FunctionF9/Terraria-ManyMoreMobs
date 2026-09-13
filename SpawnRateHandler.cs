@@ -13,7 +13,7 @@ namespace ManyMoreMobs
     /// </summary>
     public class SpawnRateMultiplier : GlobalNPC
     {
-        // ── Live capture of the local player's last spawn computation, for /debugnpc spawninfo & dump. ──
+        // ── Live capture of the local player's last spawn computation, for /mmm spawninfo & dump. ──
         // EditSpawnRate runs constantly during natural spawning, so these reflect "right now" in SP.
         public static long CapturedTick = -1;
         public static int InRate, InMax, OutRate, OutMax;

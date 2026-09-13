@@ -130,7 +130,7 @@ namespace ManyMoreMobs
             }
         }
 
-        /// <summary>Diagnostic line for <c>/debugnpc spawninfo</c>.</summary>
+        /// <summary>Diagnostic line for <c>/mmm spawninfo</c>.</summary>
         public static string Describe()
         {
             var config = ModContent.GetInstance<ManyMoreMobsConfig>();

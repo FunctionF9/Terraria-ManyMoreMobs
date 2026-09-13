@@ -27,5 +27,27 @@ namespace ManyMoreMobs
 			// UIModConfig), NOT by load/registration order — so the page order is controlled purely by the
 			// numeric "1. / 2. / ..." prefixes on each DisplayName in the en-US localization file.
 		}
+
+		public override void PostSetupContent()
+		{
+			// Every mod has finished loading by now, so this is the first moment we can see whether any of
+			// them occupies the projectile-vs-NPC hit hooks. Kept out of MaxNpcCapRaise's own
+			// PostSetupContent deliberately: that method has several early returns, and this answer needs to
+			// be recorded whether or not the cap raise itself went ahead.
+			try
+			{
+				HostileHitScan.DetectModHooks(this);
+				Logger.Info(HostileHitScan.LoadSummary());
+			}
+			catch (System.Exception e)
+			{
+				// A detector that fails must fail CLOSED — leave the conflict list as-is (non-empty from the
+				// partial scan, or empty meaning "safe") only if we know it is right. We cannot, so force the
+				// full vanilla scan and say why.
+				HostileHitScan.ForceUnsafe($"hook detection failed: {e.GetType().Name}");
+				Logger.Warn("[MMM] Could not inspect other mods for projectile-vs-NPC hit hooks; keeping the " +
+				            $"full (vanilla-cost) hit scan. {e}");
+			}
+		}
 	}
 }

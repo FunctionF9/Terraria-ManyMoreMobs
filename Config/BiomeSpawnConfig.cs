@@ -84,7 +84,7 @@ namespace ManyMoreMobs
 
         /// <summary>
         /// The display name of the biome <see cref="ResolveFor"/> would pick for this player (same priority
-        /// order), or null when biome-specific modifiers are off. Used by /debugnpc spawninfo for readout only.
+        /// order), or null when biome-specific modifiers are off. Used by /mmm spawninfo for readout only.
         /// </summary>
         public string ActiveBiomeName(Player p)
         {
@@ -120,12 +120,18 @@ namespace ManyMoreMobs
     {
         // Increment 1 to match the General sliders (snaps to whole numbers; 1.0 reachable). The far-left 0.1
         // is still selectable as a "near-off" value for a biome.
-        [Range(0.1f, 200f)]
+        //
+        // Both ceilings match the General page's two dials (300 each). When these were lower, turning biome
+        // modifiers ON silently capped you below what the blanket dials allowed — the same value would behave
+        // differently depending on a toggle elsewhere, with nothing on screen explaining why. They track
+        // General rather than any particular number, so both moved up for the 0.7.8.1 stress test and both
+        // came back down with it.
+        [Range(0.1f, 300f)]
         [Increment(1f)]
         [DefaultValue(1f)]
         public float SpawnRateMultiplier { get; set; } = 1f;
 
-        [Range(0.1f, 200f)]
+        [Range(0.1f, 300f)]
         [Increment(1f)]
         [DefaultValue(1f)]
         public float MaxSpawnMultiplier { get; set; } = 1f;

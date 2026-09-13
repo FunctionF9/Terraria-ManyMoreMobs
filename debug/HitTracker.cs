@@ -9,7 +9,7 @@ namespace ManyMoreMobs
 {
     /// <summary>
     /// Debug-only frame-by-frame tracker for diagnosing why a weapon isn't connecting. Toggled with
-    /// <c>/debugnpc track</c>. When on, it logs — for every projectile the local player owns, INCLUDING minions
+    /// <c>/mmmdebug track</c>. When on, it logs — for every projectile the local player owns, INCLUDING minions
     /// and sentries — each frame's collision picture against nearby enemies (does the box overlap? would a swept
     /// line cross it? what is the per-player i-frame and the projectile's local immunity for that slot?), plus
     /// every actual hit; <see cref="HitTrackerMeleePlayer"/> covers swung weapons.
@@ -70,7 +70,7 @@ namespace ManyMoreMobs
             _dumpBudget = 1500;
             _claimedSlots.Clear();
             string msg = Enabled
-                ? "[HITTRACK] tracking ON — swing/fire into a crowd, then /debugnpc track to stop."
+                ? "[HITTRACK] tracking ON — swing/fire into a crowd, then /mmmdebug track to stop."
                 : "[HITTRACK] tracking OFF.";
             MmmLog.Info($"=== {msg} ===");
             return msg;
@@ -90,7 +90,7 @@ namespace ManyMoreMobs
                 // second half of a test session records nothing and the weapon under test looks broken when in
                 // fact it was never watched — which is exactly what happened on 2026-08-21.
                 if (Main.netMode != NetmodeID.Server)
-                    Main.NewText("[MMM] /debugnpc track auto-stopped (hit budget reached) — run it again to continue.");
+                    Main.NewText("[MMM] /mmmdebug track auto-stopped (hit budget reached) — run it again to continue.");
             }
         }
 

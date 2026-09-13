@@ -174,7 +174,10 @@ namespace ManyMoreMobs
             }
 
             // Mirror the property's [Range]: a hand-edited config must not size the array to something absurd.
-            total = Math.Clamp(total, 200, 1500);
+            // Shares the config's own constant rather than repeating the number — when these were two
+            // literals, raising the config bound without raising this one would silently clamp the cap back
+            // down, and nothing in the log would say the chosen value had been overridden.
+            total = Math.Clamp(total, 200, ManyMoreMobsConfig.MaxNPCTotalCeiling);
 
             // Say where the numbers came from. Since tModLoader omits defaulted properties, a successful read
             // and a missing file can produce identical values — without this line the log cannot tell the two

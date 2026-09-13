@@ -57,7 +57,7 @@ namespace ManyMoreMobs
                 sb.AppendLine(stale == 0
                     ? $"mod NPC arrays: {checkedCount} checked, 0 stale."
                     : $"mod NPC arrays: {checkedCount} checked, !! {stale} STALE (still sized 200) in: {staleMods}"
-                      + "  — run /debugnpc modarrays for the field names");
+                      + "  — run /mmmdebug modarrays for the field names");
             }
             catch (Exception e)
             {
@@ -75,7 +75,7 @@ namespace ManyMoreMobs
             // Whether other mods got to size their own NPC arrays against the raised cap. When this says "no",
             // every content mod in the list built itself for 200 slots and any crash above slot 199 starts here.
             sb.AppendLine($"early raise (other mods see the real cap): {(EarlyCapRaise.Applied ? "yes" : "no")}");
-            // Cheap summary of the same scan /debugnpc modarrays prints in full. Worth having unprompted: a mod
+            // Cheap summary of the same scan /mmmdebug modarrays prints in full. Worth having unprompted: a mod
             // array stuck at 200 does not crash, it silently ignores every NPC above slot 199 — so nobody knows
             // to go looking. The one line that would have named the culprit is the one that has to appear on
             // its own. It also catches the residual case the early raise cannot: a mod that loaded a
@@ -90,7 +90,7 @@ namespace ManyMoreMobs
 
             // Three buckets, not two. Main.npc is CAP+1 long — the extra entry is the dummy/failure slot that
             // NewNPC returns when it can't place anything, and it sits ABOVE the cap, outside every widened
-            // loop. Counting it in with the rest is how this report used to disagree with /debugnpc counts
+            // loop. Counting it in with the rest is how this report used to disagree with /mmm counts
             // (which stops at the cap): a total of 751 against the cap's 750 looked like an off-by-one in the
             // report when it actually meant something had gone active in a slot the engine will never update.
             int[] low = new int[4], high = new int[4], over = new int[4];
@@ -110,7 +110,7 @@ namespace ManyMoreMobs
             sb.AppendLine($"active TOTAL  = {low.Sum() + high.Sum()}  (within cap {cap})");
             if (over.Sum() > 0)
                 sb.AppendLine($"dummy slot occupied (slot >= {cap}) = {over.Sum()}  T/B/C/E = {over[0]}/{over[1]}/{over[2]}/{over[3]}"
-                            + "  — expected: vanilla's blocked-spawn paths SetDefaults() the failure slot, which activates it. Inert (outside every loop). /debugnpc dumpall names it.");
+                            + "  — expected: vanilla's blocked-spawn paths SetDefaults() the failure slot, which activates it. Inert (outside every loop). /mmmdebug dumpall names it.");
 
             // List every NPC the mod counts as Town, so a surprising count (e.g. the world's Guide alive
             // off-screen, or a naturally-spawned Skeleton Merchant) can be identified at a glance.
@@ -123,7 +123,7 @@ namespace ManyMoreMobs
             }
             sb.AppendLine($"town NPCs ({towns.Count}): {(towns.Count == 0 ? "(none)" : string.Join(", ", towns))}");
 
-            // Spawn pressure for the local player (QoL — full breakdown via /debugnpc spawninfo).
+            // Spawn pressure for the local player (QoL — full breakdown via /mmm spawninfo).
             if (SpawnRateMultiplier.CapturedTick >= 0)
                 sb.AppendLine($"spawn (you): rate {SpawnRateMultiplier.InRate}->{SpawnRateMultiplier.OutRate}, max {SpawnRateMultiplier.InMax}->{SpawnRateMultiplier.OutMax}, src={SpawnRateMultiplier.UsedSource}, bossThrottle={(SpawnRateMultiplier.BossThrottled ? "on" : "off")}");
             else
@@ -136,9 +136,9 @@ namespace ManyMoreMobs
         /// spawn-item modifiers are active. Values are captured live in <see cref="SpawnRateMultiplier"/>.
         /// </summary>
          /// <summary>
-        /// <c>/debugnpc info</c> — the one command to ask a non-technical reporter to run.
+        /// <c>/mmm info</c> — the one command to ask a non-technical reporter to run.
         /// <para/>
-        /// Every other <c>/debugnpc</c> command answers one subsystem in depth, which is only useful once you
+        /// Every other <c>/mmmdebug</c> command answers one subsystem in depth, which is only useful once you
         /// already know which subsystem to suspect. This runs the cheap health check for all of them and prints
         /// OK/WARN per area, so a pasted screenshot says WHICH specialised command to ask for next. Four lines
         /// when nothing is wrong; a pointer line per warning when something is.
@@ -190,7 +190,7 @@ namespace ManyMoreMobs
             // YOU), which are not comparable at all: standing in a town while the cap is full elsewhere tripped
             // it. Whether a full ceiling is a problem depends on where the player is and what they expected to
             // see, which no automatic test here can know — so print the numbers and let a human read them.
-            // /debugnpc blocked exists for exactly that question.
+            // /mmm blocked exists for exactly that question.
             if (config != null)
             {
                 var caps = config.GetEffectiveCaps();
@@ -198,6 +198,20 @@ namespace ManyMoreMobs
                 sb.AppendLine($"caps T/B/C/E: {counts.town}({caps.town}) {counts.boss}({caps.boss}) " +
                               $"{counts.critter}({caps.critter}) {counts.enemy}({caps.enemy})   " +
                               "(at cap is normal — that is the cap doing its job)");
+            }
+
+            // Also a fact, not a warning. "Held back" is the correct, deliberate state when another mod wants
+            // the full scan — but it is the first thing to look at in any "why is it still slow?" report, so it
+            // has to be visible here rather than only in the load log.
+            if (config != null)
+            {
+                string scan = !config.FastHostileProjectileScan ? "off (config)"
+                            : HostileHitScan.ModHooksPresent
+                                ? (config.FastScanEvenWithOtherMods
+                                    ? $"ON, forced past {HostileHitScan.ConflictingMods.Count} mod(s): {string.Join(", ", HostileHitScan.ConflictingMods)}"
+                                    : $"held back by {string.Join(", ", HostileHitScan.ConflictingMods)}")
+                                : "ON";
+                sb.AppendLine($"fast enemy-projectile scan: {scan}");
             }
 
 
@@ -218,7 +232,7 @@ namespace ManyMoreMobs
                                && config.SpawnRateMultiplier > 2f;
                 Check(!untuned, "biome modifiers",
                       $"on, but {name} is still at 1x while the general dial is x{config.SpawnRateMultiplier:0.##} — this biome is running at vanilla rates",
-                      "/debugnpc spawninfo, and the Biome config page");
+                      "/mmm spawninfo, and the Biome config page");
             }
             // Engine patches. A failure here means another mod rewrote the same method first and our anchor
             // stopped matching — the root cause behind most "works alone, breaks with mod X" reports.
@@ -229,19 +243,19 @@ namespace ManyMoreMobs
             // different reasons: a short NPC array is a cap-raise problem, a short immunity array is a
             // weapons-can't-hit problem.
             BuildValidationReport(out _, out int arrayBad, out int immuneBad);
-            Check(arrayBad == 0, "arrays", $"{arrayBad} NPC-array anomaly(s)", "/debugnpc validate");
-            Check(immuneBad == 0, "immunity", $"{immuneBad} hit-immunity array(s) too short", "/debugnpc immune");
+            Check(arrayBad == 0, "arrays", $"{arrayBad} NPC-array anomaly(s)", "/mmmdebug validate");
+            Check(immuneBad == 0, "immunity", $"{immuneBad} hit-immunity array(s) too short", "/mmmdebug immune");
 
             // Other mods' arrays still sized for 200 — the content-mod compatibility check.
             int stale = -1, checkedCount = 0;
             try { ModArrayScanner.Build(out stale, out checkedCount, out _); } catch { stale = -1; }
-            Check(stale <= 0, "mod arrays", $"{stale} other-mod array(s) still sized 200", "/debugnpc modarrays");
+            Check(stale <= 0, "mod arrays", $"{stale} other-mod array(s) still sized 200", "/mmmdebug modarrays");
 
             // Gate telemetry. Refusals are normal at a ceiling; segment evictions never are.
             long refused = SpawnGateTelemetry.TotalRefusals;
             Check(SpawnGateTelemetry.EvictionsOfChainMembers == 0, "evictions",
                   $"{SpawnGateTelemetry.EvictionsOfChainMembers} worm/boss segment(s) removed to make room, which unravels the body",
-                  "/debugnpc blocked");
+                  "/mmm blocked");
 
             sb.AppendLine($"patches {EngineILPatcher.PatchesApplied} ok/{failed} bad | arrays {Word(arrayBad)} | " +
                           $"immunity {Word(immuneBad)} | mod arrays {(stale < 0 ? "?" : Word(stale))} ({checkedCount} checked) | " +
@@ -299,7 +313,7 @@ namespace ManyMoreMobs
         }
 
         /// <summary>
-        /// <c>/debugnpc blocked</c> — the "why is nothing spawning?" readout: every gate that can stop a spawn,
+        /// <c>/mmm blocked</c> — the "why is nothing spawning?" readout: every gate that can stop a spawn,
         /// with the live numbers and a one-line verdict naming whichever one is actually closed.
         /// <para/>
         /// Deliberately its OWN command and kept to seven lines. It started life appended to
@@ -766,7 +780,7 @@ namespace ManyMoreMobs
         /// exactly the cases that produce bugs: an Eater of Worlds body has no boss flag and no <c>realLife</c>,
         /// so if its tag is missing it silently reverts to Enemy and nothing in the aggregate counts looks wrong
         /// — the boss budget is simply short and the enemy budget is quietly overspent. Printing the route makes
-        /// that visible in one line instead of one <c>/debugnpc slot</c> call per segment.
+        /// that visible in one line instead of one <c>/mmmdebug slot</c> call per segment.
         /// <para/>
         /// Written as TSV rather than prose: it is meant to be read back out of the state log and diffed.
         /// </summary>

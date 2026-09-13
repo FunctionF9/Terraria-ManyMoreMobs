@@ -14,9 +14,9 @@ weapons one at a time, with the tracker on, is slower but it actually converges.
 
 ## Method
 
-1. `/debugnpc track`, then use the weapon in a crowd. **One weapon per trace** — the per-frame geometry
+1. `/mmmdebug track`, then use the weapon in a crowd. **One weapon per trace** — the per-frame geometry
    dump is what fills the log budget, so testing two weapons back to back can leave the second with no data.
-2. `/debugnpc immune` while still tracking (toggling track off first loses the context).
+2. `/mmmdebug immune` while still tracking (toggling track off first loses the context).
 3. Read the trace for the three failure shapes below.
 4. Record the result, even when it's clean. "Verified clean" is a result.
 

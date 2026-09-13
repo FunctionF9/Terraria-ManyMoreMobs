@@ -53,6 +53,16 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 
 
 # Versioning History
+## Version 0.7.8.1 - initial performance work
+- Enemy projectiles no longer bring the game to a crawl in a crowd. Reported as "Ice Spike/Jungle Spike slimes and harpies shoot so many projectiles my game completely freezes up and I have to alt+f4".
+- Cause: every enemy projectile searches the whole enemy list each tick looking for something to hit. The only thing an enemy projectile can actually damage is a town resident, so with the cap raised it was checking thousands of enemies it could never hurt, then throwing all of it away - once per projectile, every tick. Measured on a full screen of enemy fire, that single search was 95% of all time spent on projectiles.
+- Enemy projectiles now stop searching past the last town resident. Your own weapons are untouched and still reach every enemy - that part of the search is real work and the whole point of the raised cap.
+- Measured on the same scene before and after, at around 1150 enemies: total time per tick fell from 71ms to 9.6ms, and the projectile doing the damage went from 78 to 3.6 microseconds. The limit was temporarily lifted past its normal maximum to test this, and at 2800 enemies the game cost less than a sixth of what it used to at under half that many. The maximum itself is unchanged - that was a testing measure, and raising it for real is a decision for once these caps have more playtime behind them.
+- Two things worth knowing about the shape of this. Spike-firing slimes were a worse case than harpies, because their spikes pierce endlessly and so never stopped searching early the way a feather does. And the fix only exists where the problem does - in Default cap mode the game is never modified in the first place.
+- New setting, Fast Enemy Projectile Scan, on by default. Some mods let enemy projectiles damage other enemies, and this shortcut cannot tell that apart, so when such a mod is loaded it switches itself off by itself and names the mod in the log. Fast Scan Even With Other Mods forces it back on if you would rather have the frame rate.
+- Player weapons that hit very large groups at once can still cause a brief stutter. Most of that is the actual work of damaging and killing dozens of enemies in a single tick rather than anything wasted, so it is left for a later pass.
+- Added performance measuring tools behind Debug Mode, since none of the above should have been guessed at. `/mmmdebug perf` reports where a tick's time actually goes, split per projectile type and per phase of its update.
+
 ## Version 0.7.8.0 - engine-wide slot-assumption sweep
 - Weapons that had stopped damaging enemies should work again. Reported three times now, most recently as "half of the whips and late game swords aren't hitting enemies with their true attacks even there's one or two enemies" - with a plain broadsword still working fine.
 - Cause: the game keeps a table of "this weapon may hit this enemy slot again at tick N", and it clears that table on every world load - but only the first 200 entries. It also resets the tick counter to zero at the same moment. This mod puts ordinary enemies above slot 200, so those entries survive the world change and are then compared against a counter that just restarted. An enemy in one of those slots cannot be hit until the new session has run as many ticks as the old one did. Play for an hour, load another world, and those slots stay dead for about an hour.
@@ -106,8 +116,8 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 - Worms in high slots also now avoid overlapping each other properly, which is a behaviour change and carries a cost that has not been measured.
 - Worm bosses should draw their health bar in the right place when several are alive at once. The bar sits midway between head and tail, and the search for the tail stopped at slot 200 - which only matters once the reserved boss space overflows, as three Destroyers will.
 - The audit this mod is developed against now also looks for the ways code assumes 200 slots WITHOUT writing a loop: a bare 200 used as an index or a "nothing here" marker, a fixed-size array, and slot numbers squeezed into a single byte. That last one is how a slot above 255 quietly becomes a different, valid slot. Nothing new turned up in the game itself - everything it flagged was already handled - but it is the shape behind more than one report and it was previously invisible.
-- New `/debugnpc info` is the one to run if you are reporting a problem and don't want to learn the rest. It checks every part of the mod that can go wrong and prints OK or a warning for each - caps, engine patches, NPC arrays, hit-immunity arrays, other mods' arrays, and anything removed to make room - then names the command to run next for whichever one looks wrong. Four lines when nothing is wrong.
-- New `/debugnpc blocked` answers "why is nothing spawning?" directly. Six lines: the game's own crowding budget, the free slot count, all four category ceilings with the one that is full called out, how many spawns have been refused and how many enemies were removed to make room, and a plain-language verdict naming whichever gate is actually shut. Refusals and removals are both silent by design, which is exactly why reports of enemies not spawning have been impossible to diagnose. `spawninfo` is unchanged.
+- New `/mmm info` is the one to run if you are reporting a problem and don't want to learn the rest. It checks every part of the mod that can go wrong and prints OK or a warning for each - caps, engine patches, NPC arrays, hit-immunity arrays, other mods' arrays, and anything removed to make room - then names the command to run next for whichever one looks wrong. Four lines when nothing is wrong.
+- New `/mmm blocked` answers "why is nothing spawning?" directly. Six lines: the game's own crowding budget, the free slot count, all four category ceilings with the one that is full called out, how many spawns have been refused and how many enemies were removed to make room, and a plain-language verdict naming whichever gate is actually shut. Refusals and removals are both silent by design, which is exactly why reports of enemies not spawning have been impossible to diagnose. `spawninfo` is unchanged.
 
 ## Version 0.7.7.0 - experimental content-mod compatibility
 - Big content mods should mostly work now. With Calamity installed, no enemies spawned at all, that was a headline symptom, and it should be gone now.
@@ -117,7 +127,7 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 - Shield of Cthulhu dash damage reaches enemies above slot 199 again, and the Solar Flare dash should too. One of this mod's own patches was failing silently whenever another mod had rewritten the same code first, and the failure took every other patch in that method with it. Traced 208 dash hits landing as high as slot 749 afterwards. **test confirmed by dev** (Shield of Cthulhu; Solar Flare shares the same code and is untested)
 - The log is far quieter with a large mod list - roughly 1400 harmless stack traces per session are gone, which matters because real errors were getting buried in them. Loading time itself measured the same either way, so no promises there.
 - The same silent-patch-failure fix now also covers the experimental multiplayer packet patches, which had the identical weakness and sit on methods other mods commonly rewrite. They apply on every load, single player included, so this was worth closing whether or not you play multiplayer.
-- `/debugnpc` now reports whether other mods got the real limit, which is the first thing to check if a content mod misbehaves. New `/debugnpc modarrays` goes further and measures it - it reads back the actual sizes other mods built their NPC arrays at and names any that are still stuck at 200, so a compatibility report can be answered by looking instead of guessing.
+- `/mmmdebug` now reports whether other mods got the real limit, which is the first thing to check if a content mod misbehaves. New `/mmmdebug modarrays` goes further and measures it - it reads back the actual sizes other mods built their NPC arrays at and names any that are still stuck at 200, so a compatibility report can be answered by looking instead of guessing.
 
 ## Version 0.7.6.7 - boss checklist compat & cap redistribution
 - Bombs, dynamite and grenades should behave again alongside Boss Checklist. With both on they damaged one enemy, skipped the rest of the blast and left the ground intact - but only when something was in range to die. **test confirmed by dev**
@@ -132,22 +142,22 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 - Worms and Wyverns should no longer arrive chopped. Each segment is a separate spawn, and one turned away by a full enemy budget left a truncated worm, or a torso that promptly deleted itself. Segments now get first claim on a slot, despawning a low-priority mob if the world is completely full. **test confirmed by dev**
 - Segments should no longer be despawned out from under a living worm either. Removing one link makes the game delete everything past it, so freeing a single slot could quietly cost twenty.
 - Boss health bars should work above slot 200. The bar scanned only the first two hundred slots when picking a boss to follow and refused anything past that, so a boss in the expanded zone got no bar at all. The bars that total up a multi-part body (Eater, Twins, Golem, Moon Lord, Martian Saucer, Pirate Ship, Brain) stopped counting at the same line and could show a fraction of the real health.
-- `/debugnpc slot <i>` now reports an NPC's AI style and whether it belongs to a multi-part body.
-- New `/debugnpc dumpall` writes a full census to the log: every active NPC, its slot, its category, and which rule assigned it. **test confirmed by dev**
+- `/mmmdebug slot <i>` now reports an NPC's AI style and whether it belongs to a multi-part body.
+- New `/mmmdebug dumpall` writes a full census to the log: every active NPC, its slot, its category, and which rule assigned it. **test confirmed by dev**
 
 ## Version 0.7.6.5
 - Tier 1 of the Old One's Army should be completable again. Wave 5 sat frozen at 19% while the portals kept producing ordinary enemies and the Dark Mage never appeared, in single-player as much as online. **test confirmed by dev**
 - The cause is the 'Old One's Army Wave Length' setting. It multiplies the kills a wave needs, which is right for waves 1 to 4 and wrong for the last one, since that wave ends on the miniboss dying rather than on a count. The game holds it open by parking progress at 139 of 140 and only releases the Dark Mage past half the requirement, so at the default 5x it wants 350 out of a possible 139. Hence 19%, which is 139 out of 700.
 - The last wave of each tier now keeps its vanilla length; everything before it still scales as configured. This also covers tier 2 never wrapping up after the Ogre dies. **test confirmed by dev**
 - No new world needed if you were stuck. Start the event again. **test confirmed by dev**
-- `/debugnpc event` now reports the wave maths while an event is running: the wave, the kill requirement in use, the progress counter, and whether the Dark Mage's spawn condition passes.
+- `/mmmdebug event` now reports the wave maths while an event is running: the wave, the kill requirement in use, the progress counter, and whether the Dark Mage's spawn condition passes.
 
 ## Version 0.7.6.4 - experimental MP hotfix
 - Eight of the server broadcast guards added in 0.7.6.1 were never actually applied. The patch finds them by shape rather than by line number, and its search window was one instruction too narrow to see past padding in the compiled code, so a batch of them was skipped in silence while the rest succeeded. Should match now.
 - The ordinary natural-spawn broadcast was missed entirely in 0.7.6.1, and it is the widest-reaching of the family. Every naturally spawned enemy goes through it.
 - Correcting 0.7.6.1, which overstated this: a missed spawn broadcast delays rather than erases. The enemy still reaches clients the next time its AI syncs itself, so it appears late, behaves oddly for a moment, or seems to take no damage while a client thinks it is elsewhere. How long that lasts depends on the enemy, which is why it reads as random.
 - The Old One's Army gates no longer send a redundant packet on every tick where a portal spawns nothing.
-- New `/debugnpc version`. In multiplayer it reports the **server's** version, which is the one that counts: tModLoader makes the server's mod list authoritative and switches clients to match it, so a server that hasn't updated silently downgrades everyone on it. Include this when reporting a bug from a server.
+- New `/mmm version`. In multiplayer it reports the **server's** version, which is the one that counts: tModLoader makes the server's mod list authoritative and switches clients to match it, so a server that hasn't updated silently downgrades everyone on it. Include this when reporting a bug from a server.
 - A cap-raise bug present since the beginning, unrelated to multiplayer: vanilla uses slot 200 as a "nothing here" placeholder in the spawn routine, because unmodded that slot is permanently empty. With the cap raised it is an ordinary occupied slot, so whoever stood in it could be quietly turned into a Pinky on a rare roll. Rare, harmless, and unattributable if you ever saw it.
 - Dev tooling: the loop audit now scans `DD2Event`, and only counts a method as covered when a patch actually widens its loops. It previously counted any patch at all, so a method hooked for an unrelated reason reported all of its loops as safe. That was hiding fourteen of them.
 
@@ -177,12 +187,12 @@ Multiplayer is still **not supported**. Best-effort fixes for symptoms reported 
 - Debuffs can be cleared from expanded-slot enemies, coin value pings arrive, and a joining player is sent the whole NPC list rather than just the first 200.
 - Neutralised an anti-cheat check that could kick a player for referencing a high NPC slot.
 - All of it lives in `MMMultiplayer/` behind 'Experimental Multiplayer Fixes' (Debugging & Experimental, ON by default, applies live). Switch it off for untouched vanilla netcode. Single-player is unaffected either way.
-- `/debugnpc` now answers the player who typed it rather than the server console, so it's usable when reporting a multiplayer problem. `/debugnpc track` says outright that it's single-player only instead of quietly logging nothing. **test confirmed by dev**
+- `/mmmdebug` now answers the player who typed it rather than the server console, so it's usable when reporting a multiplayer problem. `/mmmdebug track` says outright that it's single-player only instead of quietly logging nothing. **test confirmed by dev**
 
 ## Version 0.7.5
 - King Slime should stop ambushing you near the world edges, and a Prismatic Lacewing should stop reappearing seconds after the Empress dies. Neither comes from the normal spawn pool; they roll dice on every spawn attempt, so a raised spawn rate multiplied how often they fired. Their odds now widen by the same factor, keeping them at vanilla frequency at any setting. New 'Normalize Rare Spawns' toggle, ON by default; summoning items are unaffected. **test confirmed by dev**
 - The Lacewing is a deliberate exception, since hunting one down shouldn't be a chore. 'Lacewing Spawn Boost' keeps it a few times more common than vanilla (5x by default), dropping to full vanilla rarity for two minutes after the Empress spawns or dies so you don't walk straight into re-summoning her.
-- `/debugnpc spawninfo` now reports the rare-spawn odds actually in effect. **test confirmed by dev**
+- `/mmm spawninfo` now reports the rare-spawn odds actually in effect. **test confirmed by dev**
 
 ## Version 0.7.4
 - "Weapons randomly stop working" should be resolved. It was never a missed hit; vanilla shaves ~30% damage off a piercing projectile for every enemy it goes through, which is a fair tax over 5 enemies and compounds to 1 damage across a horde. A traced Cool Whip went 33 → 23 → 16 → 11 across four Mimics. **test confirmed by dev**
@@ -198,7 +208,7 @@ Multiplayer is still **not supported**. Best-effort fixes for symptoms reported 
 - Bug nets should catch critters again. The catch scan only looked at slots 0-199, and critters live in the expanded ones, so nets caught literally nothing in Expanded mode. **test confirmed by dev**
 - The invasion progress bar should show up again. The "is an invasion happening near me" check was slot-limited too, so invasions looked endless. **test confirmed by dev**
 - Lunatic Cultist ritual and statue spawn limits also patched for the expanded slots.
-- New dev tool `tools/audit-npc-loops.sh` audits the game's hardcoded 0-199 NPC loops against the mod's patch list, so remaining gaps are a checklist instead of guesswork. New `/debugnpc event` reports invasion, moon and pillar state plus the low-vs-high slot split.
+- New dev tool `tools/audit-npc-loops.sh` audits the game's hardcoded 0-199 NPC loops against the mod's patch list, so remaining gaps are a checklist instead of guesswork. New `/mmmdebug event` reports invasion, moon and pillar state plus the low-vs-high slot split.
 
 ## Version 0.7.1
 - In-game enemy counters can count past 255. They were stored in a single byte. **test confirmed by dev**

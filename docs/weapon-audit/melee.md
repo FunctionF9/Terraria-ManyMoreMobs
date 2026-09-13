@@ -41,5 +41,5 @@ weapon (no `noMelee`), which is most of the class. The two settings are compleme
 supporting methods (`ItemCheck_MeleeHitNPCs`, `UpdateMeleeHitCooldowns`, `ResetMeleeHitCooldowns`) are
 patched; `meleeNPCHitCooldown` is grown to the cap both in the `Player` constructor and for existing players.
 
-`/debugnpc track` reports these split LOW (0-199) vs HIGH (200+). A gate that blocks only HIGH slots is the
+`/mmmdebug track` reports these split LOW (0-199) vs HIGH (200+). A gate that blocks only HIGH slots is the
 fingerprint of an unpatched loop.

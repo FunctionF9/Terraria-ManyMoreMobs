@@ -43,6 +43,13 @@ namespace ManyMoreMobs
                 for (int p = 0; p < immune.Length; p++)
                     immune[p] = 0;
             }
+
+            // Piggybacked here rather than on a hook of its own: HostileHitScan caps how far an enemy
+            // projectile scans at the highest friendly NPC, and recomputes that once per tick. A town NPC
+            // spawning mid-tick would otherwise sit above the bound until the next one and be briefly immune
+            // to enemy fire. Free to do here — we are already in a spawn hook.
+            if (npc.friendly)
+                HostileHitScan.NoteFriendlySlot(slot);
         }
     }
 }

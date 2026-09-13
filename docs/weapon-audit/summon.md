@@ -28,7 +28,7 @@ Melee one never applied to them. Never assume a whip is melee.
 | Other minions | — | untested | |
 
 Minions are excluded from the Extra Pierce / Anti-Tunnel assists by design (they already reach and
-auto-target the expanded zone). They are **included** in `/debugnpc track`.
+auto-target the expanded zone). They are **included** in `/mmmdebug track`.
 
 ## Reference: vanilla per-type damage decay
 

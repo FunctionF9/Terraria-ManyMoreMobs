@@ -357,6 +357,12 @@ LOOP_MANIPULATORS="$LOOP_MANIPULATORS|Patch_HealthBars|Patch_InfoAccessories|Pat
 LOOP_MANIPULATORS="$LOOP_MANIPULATORS|Patch_TownNPCCombat|Patch_UpdateLoop"
 LOOP_MANIPULATORS="$LOOP_MANIPULATORS|Patch_LocalImmunityDecrement|Patch_ResetLocalImmunity"
 LOOP_MANIPULATORS="$LOOP_MANIPULATORS|Patch_CanReleaseNPCs|Patch_DaybreakSpread|Patch_BrainOfGravityGate|Patch_SpawnBossSentinel"
+# Patch_DamageHitScanBounds took Projectile.Damage over from Patch_AllNpcLoopBounds200 in 0.7.8.1, which turned
+# that method's four loops into false GAPs (57 -> 61) the moment it landed. It belongs here: it rewrites the
+# same `ldc.i4 200` bounds, just to a per-projectile call instead of straight to the cap. The bound it returns
+# is the full cap for every projectile that can reach a high slot, and is only shortened for hostile ones,
+# which provably cannot -- so "covered" is the right answer for the inventory's purposes.
+LOOP_MANIPULATORS="$LOOP_MANIPULATORS|Patch_DamageHitScanBounds"
 {
     # PatchMethod / PatchNpcLoops / PatchChaseLoops (mod, typeof(Type), "Name") — all widen loops.
     grep -oE 'Patch(Method|NpcLoops|ChaseLoops)\(mod, typeof\([A-Za-z]+\), "[A-Za-z0-9_]+"' "$PATCHER" \

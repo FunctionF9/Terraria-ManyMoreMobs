@@ -9,7 +9,7 @@ namespace ManyMoreMobs
     /// "no enemies are spawning" class of report has never been diagnosable from a log — the player sees an
     /// empty screen and we see nothing at all.
     /// <para/>
-    /// Read back through <c>/debugnpc spawninfo</c>. Deliberately plain static counters: this is written from
+    /// Read back through <c>/mmm spawninfo</c>. Deliberately plain static counters: this is written from
     /// the spawn path on every refusal, so it must cost nothing and must never throw.
     /// <para/>
     /// Not synced and not saved. In multiplayer these describe whichever side is running the gate (the server),

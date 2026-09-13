@@ -77,7 +77,7 @@ namespace ManyMoreMobs
 
         /// <summary>
         /// Non-null when the early cap raise and the active config disagree about the total — see the note in
-        /// <see cref="PostSetupContent"/>. Surfaced by <c>/debugnpc info</c> so a player can report it without
+        /// <see cref="PostSetupContent"/>. Surfaced by <c>/mmm info</c> so a player can report it without
         /// having to find the log.
         /// </summary>
         internal static string CapMismatch { get; private set; }

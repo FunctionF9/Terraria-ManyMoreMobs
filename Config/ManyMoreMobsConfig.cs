@@ -28,9 +28,30 @@ namespace ManyMoreMobs
         [DefaultValue(NpcCapMode.Expanded)]
         public NpcCapMode CapMode { get; set; } = NpcCapMode.Expanded;
 
+        /// <summary>
+        /// Hard ceiling on <see cref="MaxNPCTotal"/>, and the single source of truth for it.
+        /// <para/>
+        /// <b>Must stay a const, and must stay the only place this number lives.</b> The early cap raise reads
+        /// the config file by hand (before tModLoader has parsed it) and re-clamps the value itself, so the
+        /// bound exists in two places by necessity. When they were two literals they could silently disagree,
+        /// and the failure mode is nasty: the config would happily accept a number the engine then quietly
+        /// clamped to something lower, so a test would run at a cap nobody chose and the log would look fine.
+        /// </summary>
+        /// <para/>
+        /// Held at 1500 — the range the mod has actually been played at. It was briefly raised to 3000 to
+        /// stress-test the projectile work in 0.7.8.1 and put back afterwards; raising it again is a decision
+        /// to make once the current caps have had more time in real playthroughs, not a side effect of a
+        /// performance pass.
+        public const int MaxNPCTotalCeiling = 1500;
+
+        /// <summary>Ceiling on <see cref="EnemyCap"/>: everything above the native 0-199 zone.</summary>
+        public const int EnemyCapCeiling = MaxNPCTotalCeiling - 200;
+
         // The total NPC budget in Expanded mode. IGNORED in Default (clamped to the vanilla 200).
+        // The upper bound is deliberately far above anything playable — it exists for stress testing, and a
+        // machine will run out of frame budget long before it runs out of slots.
         [ReloadRequired]
-        [Range(200, 1500)]
+        [Range(200, MaxNPCTotalCeiling)]
         [DefaultValue(750)]
         public int MaxNPCTotal { get; set; } = 750;
 
@@ -54,9 +75,9 @@ namespace ManyMoreMobs
         [DefaultValue(25)]
         public int CritterCap { get; set; } = 25;
 
-        // Max is the size of the expanded zone at the largest MaxNPCTotal (1500 - the 200 low zone = 1300),
+        // Max is the size of the expanded zone at the largest MaxNPCTotal (the ceiling minus the 200 low zone),
         // so a player who cranks MaxNPCTotal can actually fill it with enemies. Default 525 suits the 750 total.
-        [Range(1, 1300)]
+        [Range(1, EnemyCapCeiling)]
         [DefaultValue(525)]
         public int EnemyCap { get; set; } = 525;
 
@@ -72,6 +93,14 @@ namespace ManyMoreMobs
 
         // Near-player active-spawn limit (vanilla base × this). Vanilla bases are tiny (~5), so a big value is
         // needed to approach the Enemy cap. If you plateau below the cap, the spawn AREA is the limiter, not this.
+        //
+        // 300x against a vanilla base of ~5 allows roughly 1500 active, which covers the 1300 Enemy ceiling
+        // with room to spare — so this dial is not the binding constraint at any setting the mod allows. It
+        // was raised to 1000 while MaxNPCTotalCeiling was temporarily at 3000, where 300x no longer reached
+        // the cap and a stress test would have plateaued below the number it was trying to hit; both went
+        // back together. Note the spawn RATE dial is not raised to match, and does not need to be — the
+        // engine attempts spawns per frame, so past a few hundred it is already attempting one every frame
+        // and a larger number buys nothing.
         [Range(1f, 300f)]
         [Increment(1f)]
         [DefaultValue(300f)]
@@ -107,8 +136,26 @@ namespace ManyMoreMobs
         [DefaultValue(5f)]
         public float LacewingSpawnBoost { get; set; } = 5f;
 
-        // ── 4. Debugging & experimental ────────────────────────────────────────────────────────────
-        // Auto-dumps state to ManyMoreMobs-state.log on world load and before each save. /debugnpc commands
+        // ── 4. Performance ─────────────────────────────────────────────────────────────────────────
+        // Enemy projectiles scan the whole NPC array every tick looking for something to hit, even though the
+        // only thing they can actually damage is a town NPC. At a raised cap that one loop measured as 95% of
+        // all projectile time — it is what turns a screen full of harpies or spike slimes into a slideshow.
+        // On, an enemy projectile only scans as far as the highest town NPC instead of the whole array.
+        // Player projectiles are untouched; they still see every enemy. Live (no reload).
+        [Header("Performance")]
+        [DefaultValue(true)]
+        public bool FastHostileProjectileScan { get; set; } = true;
+
+        // The shortcut is only IDENTICAL to vanilla when no other mod overrides the projectile-vs-NPC hit
+        // hooks, because a mod can use those to let enemy projectiles damage other enemies ("friendly fire"
+        // mods). When one does, the shortcut turns itself off and the load log names the mod. Turn this on to
+        // use it anyway: you get the frame rate back, and any such cross-enemy damage stops working. Off is
+        // the correct-by-default choice; this is the deliberate override. Live (no reload).
+        [DefaultValue(false)]
+        public bool FastScanEvenWithOtherMods { get; set; } = false;
+
+        // ── 5. Debugging & experimental ────────────────────────────────────────────────────────────
+        // Auto-dumps state to ManyMoreMobs-state.log on world load and before each save. /mmmdebug commands
         // always log regardless. Leave off for normal play.
         [Header("DebugAndExperimental")]
         [DefaultValue(false)]
