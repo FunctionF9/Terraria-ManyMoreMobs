@@ -53,6 +53,15 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 
 
 # Versioning History
+## Version 0.7.8.2 - Night's Edge and whips hitfix
+- Weapons that hit each enemy only once per swing should no longer get stuck unable to hit particular enemies. That is whips, and the swords that swing as a projectile (Night's Edge, Excalibur, Terra Blade and their upgrades, and The Horseman's Blade). Reported as a whip leaving "3 or 4 of them [that] will never get hit, even after all the others die", and as Night's Edge hitting an enemy "once and then it stops".
+- Suspected cause: these weapons keep a table of which enemies they have already hit, and the game wipes it at the start of every swing. This mod extends that wipe to the raised cap. In a session where the mod was enabled mid-game and reloaded without restarting, the wipe still skipped the enemies above the original 200 slots, though the log reported the change as applied. Those enemies could be hit once and never again.
+- The mod now also wipes those tables itself, from its own code, whenever a projectile spawns and whenever a swing starts. It is meant to change nothing when the game's own wipe has already done the job. **`test confirmed by dev`**
+- Not yet confirmed that this is what the reports were. The fault has only been reproduced by enabling the mod mid-session, and it is unknown whether the reports came about the same way.
+- `/mmm info` now warns when the game's own wipe has missed. The same thing may affect other small parts of the game this mod adjusts, which this does not cover, so if the warning appears, a full game restart rather than Reload Mods is recommended.
+- `/mmm info` also warns when the game has been silently deleting projectiles because their update threw an error, which looks exactly like a weapon doing nothing.
+- `/mmmdebug track` rebuilt. It tested whips and projectile-swung swords against the wrong shape and could never show them missing; it now uses each weapon's real hit area, names the check that stopped every touch that did not hit, and writes a per-weapon summary when turned off.
+
 ## Version 0.7.8.1 - initial performance work
 - Enemy projectiles no longer bring the game to a crawl in a crowd. Reported as "Ice Spike/Jungle Spike slimes and harpies shoot so many projectiles my game completely freezes up and I have to alt+f4".
 - Cause: every enemy projectile searches the whole enemy list each tick looking for something to hit. The only thing an enemy projectile can actually damage is a town resident, so with the cap raised it was checking thousands of enemies it could never hurt, then throwing all of it away - once per projectile, every tick. Measured on a full screen of enemy fire, that single search was 95% of all time spent on projectiles.

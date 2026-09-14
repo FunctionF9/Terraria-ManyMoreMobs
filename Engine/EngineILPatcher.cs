@@ -1959,6 +1959,9 @@ namespace ManyMoreMobs
             catch (AmbiguousMatchException)
             {
                 mod.Logger.Error($"[MMM] {type.Name}.{name} is ambiguous; targeting patch skipped.");
+                // Counted like Apply's "target not found", so /mmm info and the hit-table backstop can see it.
+                PatchesMissing++;
+                Record($"{type.Name}.{name} (ambiguous)");
                 return;
             }
 

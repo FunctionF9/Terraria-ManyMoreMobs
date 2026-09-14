@@ -181,6 +181,19 @@ namespace ManyMoreMobs
                   EngineILPatcher.RegistrationAborted ?? "",
                   "patch registration stopped partway, so the engine is only partly widened - please report this");
 
+            // A projectile whose update throws is swapped for a blank one by vanilla's own catch, silently: the
+            // swing or shot just does nothing. It is the one form of "my weapon can't hit" that no hit tracker
+            // can see, so when it has happened it goes near the top, pointing at where the culprit is named.
+            Check(ProjectileErrorWatch.Total == 0, "Projectile errors", ProjectileErrorWatch.Summary(),
+                  "an update threw and the game deleted the projectile silently - send client.log, its 'Silently Caught Exception' entry names the mod");
+
+            // "patches N ok" below only says a patch registered. This is the one place a patched reset that still
+            // stopped at slot 200 becomes visible: the backstop clears weapons' hit tables itself, but other small
+            // patched methods may be skipped the same way and nothing clears those, hence the restart advice. When
+            // the reset patch failed outright, a restart changes nothing, and the advice says so instead.
+            Check(HitTableResetBackstop.Misses == 0, "Hit-table resets", HitTableResetBackstop.Summary(),
+                  HitTableResetBackstop.Advice());
+
             // Caps are reported as a FACT, never as a warning.
             //
             // Being at the Enemy ceiling is this mod's normal steady state — at the default 200x rate the cap
