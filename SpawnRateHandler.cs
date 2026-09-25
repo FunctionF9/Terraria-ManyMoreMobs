@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Terraria;
 using Terraria.GameContent.Events;
 using Terraria.ModLoader;
@@ -34,18 +34,7 @@ namespace ManyMoreMobs
             // blanket values. Both come in already modified by vanilla (biome, events, candle, battle), and
             // we MULTIPLY rather than overwrite so those modifiers are preserved and amplified:
             //   lower spawnRate = more frequent spawns; higher maxSpawns = more active at once.
-            float rateMult = config.SpawnRateMultiplier;
-            float maxMult = config.MaxSpawnMultiplier;
-            string source = "General blanket";
-
-            var biomeConfig = ModContent.GetInstance<BiomeSpawnConfig>();
-            BiomeSpawnRates biome = biomeConfig?.ResolveFor(player);
-            if (biome != null)
-            {
-                rateMult = biome.SpawnRateMultiplier;
-                maxMult = biome.MaxSpawnMultiplier;
-                source = "Biome: " + (biomeConfig.ActiveBiomeName(player) ?? "?");
-            }
+            (float rateMult, float maxMult, string source) = ResolveMultipliers(player, config);
 
             spawnRate = Math.Max(1, (int)(spawnRate / Math.Max(0.1f, rateMult)));
             maxSpawns = Math.Max(1, (int)(maxSpawns * Math.Max(0.1f, maxMult)));
@@ -86,6 +75,71 @@ namespace ManyMoreMobs
                 UsedSource = source;
                 BossThrottled = throttled;
             }
+        }
+
+        /// <summary>
+        /// The spawn multipliers in force for this player: the per-biome overrides when one resolves, else the
+        /// General blanket dials. Shared so <see cref="EditSpawnRange"/> reads exactly what
+        /// <see cref="EditSpawnRate"/> applied, including on a server, where nothing is captured.
+        /// </summary>
+        private static (float rate, float max, string source) ResolveMultipliers(Player player, ManyMoreMobsConfig config)
+        {
+            var biomeConfig = ModContent.GetInstance<BiomeSpawnConfig>();
+            BiomeSpawnRates biome = biomeConfig?.ResolveFor(player);
+            if (biome != null)
+                return (biome.SpawnRateMultiplier, biome.MaxSpawnMultiplier,
+                        "Biome: " + (biomeConfig.ActiveBiomeName(player) ?? "?"));
+
+            return (config.SpawnRateMultiplier, config.MaxSpawnMultiplier, "General blanket");
+        }
+
+        // How far the ring may grow, as a multiple of vanilla's width.
+        private const float MaxWidenFactor = 2.5f;
+
+        /// <summary>
+        /// Widens the ring natural spawns are placed in, in proportion to the raised spawn rate.
+        /// <para/>
+        /// Vanilla spawns into a ring between <c>safeRangeX</c> (0.52 screens, just off-screen) and
+        /// <c>spawnRangeX</c> (0.7 screens): about 22 tile columns each side. It picks one column at random and
+        /// drops the NPC on the ground there, which is fine at a spawn every few seconds. Multiply the rate and
+        /// that same narrow band takes a spawn nearly every frame, so the same column repeats within about a
+        /// second and the two NPCs land on the identical tile — the "five enemies standing as one" the horde is
+        /// supposed to avoid. A wider ring gives the roll more columns to land on.
+        /// <para/>
+        /// <b>Square root, not the multiplier.</b> The ring cannot grow 200-fold; it would sit far outside the
+        /// distance an NPC stays loaded at and every spawn would despawn on its first update. The root turns the
+        /// default 200x into the cap while leaving a modest 4x setting near vanilla.
+        /// <para/>
+        /// <b>Horizontal only, deliberately.</b> The vertical range decides how far below you a spawn may land,
+        /// and depth decides WHICH enemies the game picks — widening it would spawn cave enemies while you stand
+        /// on the surface, which is a content change, not a spacing one.
+        /// <para/>
+        /// <c>safeRangeX</c> is left alone: it is what keeps spawns off-screen.
+        /// <para/>
+        /// <b>Off by default, and it should stay that way.</b> Horizontal distance is not the neutral axis it
+        /// looks like: <c>NPC.SpawnNPC</c> hands the chosen tile to the pool as <c>NPCSpawnInfo.SpawnTileType</c>,
+        /// and vanilla keys whole enemy lists off it (sand, snow, jungle grass). So a wide ring reaches the
+        /// neighbouring biome's ground and spawns its enemies while the player stands in their own — desert
+        /// enemies in a forest, seen in dev testing. Spawning further out also delays every arrival. Both are
+        /// judgement calls about feel rather than faults, which is why this is a switch and not a fix.
+        /// </summary>
+        public override void EditSpawnRange(Player player, ref int spawnRangeX, ref int spawnRangeY,
+                                            ref int safeRangeX, ref int safeRangeY)
+        {
+            var config = ModContent.GetInstance<ManyMoreMobsConfig>();
+            if (config == null || !config.WidenSpawnArea)
+                return;
+
+            float rateMult = ResolveMultipliers(player, config).rate;
+            if (rateMult <= 1f)
+                return;
+
+            float factor = Math.Clamp(MathF.Sqrt(rateMult), 1f, MaxWidenFactor);
+
+            // Never past the distance the game keeps an NPC loaded at (activeRangeX is sWidth * 2.1), or a spawn
+            // would be culled on its first update. Four fifths of it leaves room for the player to move away.
+            int maxTilesX = (int)(NPC.sWidth * 2.1f / 16f * 0.8f);
+            spawnRangeX = Math.Min((int)(spawnRangeX * factor), maxTilesX);
         }
     }
 }

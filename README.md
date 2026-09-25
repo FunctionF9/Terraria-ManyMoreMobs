@@ -53,6 +53,15 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 
 
 # Versioning History
+## Version 0.7.8.3 - spread spawn patch testing
+- Two new settings under Spawn Rate, both **experimental and off by default**, aimed at enemies appearing stacked on the same spot and moving as one. Reported as "typically 2 spawn right on top of each other and perfectly overlapping and almost perfectly move in sync until player intervention".
+- Cause: the game places every natural spawn in a narrow ring around you, about 22 tile columns each side and just off-screen, picking one column at random and dropping the enemy on the ground there. That is sized for a spawn every few seconds. This mod asks for one nearly every frame, so the same column comes up about once a second, two enemies land on the identical tile, and identical enemies chasing the same player then move identically.
+- Each switches on its own, and takes effect without a reload:
+  - Spread Out Spawn Positions moves each newly spawned enemy up to two tiles sideways, and leaves it where the game put it whenever that would push it inside a wall.
+  - Widen Spawn Area grows the ring in proportion to your spawn rate, giving the roll far more places to land. The inner edge never moves, so spawns still happen off-screen, and enemies stay inside the range where they remain loaded. No effect at 1x.
+- They are opt-in because of how they play, not because anything is broken. Widening the ring also changes *which* enemies turn up: part of what the game picks is decided by the ground a spawn lands on, so a wide ring reaches into a neighbouring biome and brings its enemies with it, and enemies spawned further out take noticeably longer to arrive. The sideways nudge makes arrivals read as staggered and out of place.
+- Left in for anyone who would rather have a horde spread along the horizon than a tidy one. Whether either setting actually clears up the stacking is not yet confirmed.
+
 ## Version 0.7.8.2 - Night's Edge and whips hitfix
 - Weapons that hit each enemy only once per swing should no longer get stuck unable to hit particular enemies. That is whips, and the swords that swing as a projectile (Night's Edge, Excalibur, Terra Blade and their upgrades, and The Horseman's Blade). Reported as a whip leaving "3 or 4 of them [that] will never get hit, even after all the others die", and as Night's Edge hitting an enemy "once and then it stops".
 - Suspected cause: these weapons keep a table of which enemies they have already hit, and the game wipes it at the start of every swing. This mod extends that wipe to the raised cap. In a session where the mod was enabled mid-game and reloaded without restarting, the wipe still skipped the enemies above the original 200 slots, though the log reported the change as applied. Those enemies could be hit once and never again.

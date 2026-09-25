@@ -68,6 +68,26 @@ Configs: {
 				'''
 		}
 
+		SpreadSpawnPositions: {
+			Label: Spread Out Spawn Positions (Experimental)
+			Tooltip:
+				'''
+				Nudges each newly spawned enemy slightly sideways, so two that pick the same spot don't stand exactly on top of each other and move as one.
+				The game drops enemies into a narrow ring around you, and at a high spawn rate the same spot comes up constantly. Skipped when the nudge would put the enemy inside a wall, so nothing spawns that wouldn't have.
+				Experimental, so it defaults OFF: the staggered arrivals can read as out of place.
+				'''
+		}
+
+		WidenSpawnArea: {
+			Label: Widen Spawn Area (Experimental)
+			Tooltip:
+				'''
+				Spreads spawns around a wider ring, scaled to your spawn rate, so a horde arrives spread across the horizon instead of piling into the same few spots.
+				Experimental, so it defaults OFF, and it comes with a real trade: part of what spawns is decided by the ground the spawn lands on, so a wider ring drags in enemies from neighbouring biomes, and everything takes longer to reach you.
+				Enemies still appear off-screen and stay close enough to come find you. No effect at 1x spawn rate.
+				'''
+		}
+
 		CapMode: {
 			Label: Mode
 			Tooltip:

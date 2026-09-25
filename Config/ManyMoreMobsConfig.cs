@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using Newtonsoft.Json;
 using Terraria.ModLoader.Config;
@@ -135,6 +135,29 @@ namespace ManyMoreMobs
         [Increment(1f)]
         [DefaultValue(5f)]
         public float LacewingSpawnBoost { get; set; } = 5f;
+
+        // EXPERIMENTAL, off by default. Nudge each naturally spawned enemy slightly sideways so two that roll the
+        // same spawn spot don't land exactly on top of each other. The game picks a random column in a narrow
+        // ring around you and drops the enemy on the ground there; at a multiplied spawn rate the same column
+        // comes up about once a second, and the pair then overlaps perfectly and moves as one. The nudge is
+        // skipped whenever the new spot would be inside a wall, so it can only change where an enemy lands,
+        // never whether it spawns. Opt-in because dev testing found the staggered arrivals read as out of place.
+        // Live (no reload).
+        [DefaultValue(false)]
+        public bool SpreadSpawnPositions { get; set; } = false;
+
+        // EXPERIMENTAL, off by default. Widen the ring the game spawns enemies in, scaled to how much the spawn
+        // rate is multiplied. Vanilla's ring is about 22 tile columns each side of you, sized for a spawn every
+        // few seconds; at a multiplied rate that same narrow band absorbs a spawn nearly every frame, which is
+        // what stacks enemies in one spot.
+        //
+        // Opt-in because of two side effects found in dev testing. Part of what an enemy is chosen from is the
+        // tile the spawn lands on (NPC.SpawnNPC passes it as NPCSpawnInfo.SpawnTileType), so a wider ring reaches
+        // into a neighbouring biome's tiles and spawns its enemies - desert enemies while standing in a forest.
+        // And spawning further out means enemies take noticeably longer to arrive. No effect at 1x.
+        // Live (no reload).
+        [DefaultValue(false)]
+        public bool WidenSpawnArea { get; set; } = false;
 
         // ── 4. Performance ─────────────────────────────────────────────────────────────────────────
         // Enemy projectiles scan the whole NPC array every tick looking for something to hit, even though the
