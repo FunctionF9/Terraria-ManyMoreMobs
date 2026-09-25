@@ -14,9 +14,10 @@ Configs: {
 			Label: Spawn Rate
 			Tooltip:
 				'''
-				How OFTEN the game tries to spawn enemies, higher == more frequent spawns.
-				Stacks on top of the usual vanilla stuff (Water Candle, Battle Potion, biome). 
-				Biome-Specific Modifiers on the Biome Config page take priority over this setting.
+				How OFTEN the game tries to spawn enemies.
+				Higher = more often.
+				Stacks with Water Candle, Battle Potion, biome etc.
+				Biome-Specific Modifiers override this.
 				'''
 		}
 
@@ -24,9 +25,9 @@ Configs: {
 			Label: Max Active Spawns
 			Tooltip:
 				'''
-				How MANY enemies can be active near you at once (multiplies vanilla limit).
-				Works hand-in-hand with Spawn Rate, rate keeps filling up toward this max. 
-				Vanilla's base is ~5, so you'll want a big value here to get near the Enemy cap. 
+				How MANY enemies can be active near you at once.
+				Spawn Rate keeps filling up toward this limit.
+				Vanilla's base is ~5, so go big to reach the cap.
 				'''
 		}
 
@@ -34,8 +35,9 @@ Configs: {
 			Label: Reduce Spawns During Boss
 			Tooltip:
 				'''
-				While a boss is alive, throttle normal spawns so the fight isn't clogged under a pile of enemies.
-				How hard it throttles is set by 'Boss-Active Spawn Factor' just below.
+				Throttles normal spawns while a boss is alive, so
+				the fight isn't buried under a pile of enemies.
+				Strength is set by the factor just below.
 				'''
 		}
 
@@ -43,7 +45,8 @@ Configs: {
 			Label: Boss-Active Spawn Factor
 			Tooltip:
 				'''
-				How much normal spawning carries on while a boss is up: 0 = none, 1 = full spawn rate.
+				How much normal spawning carries on during a boss.
+				0 = none, 1 = full rate.
 				No effect if Reduce Spawns During Boss is OFF.
 				'''
 		}
@@ -52,9 +55,11 @@ Configs: {
 			Label: Normalize Rare Spawns
 			Tooltip:
 				'''
-				Keeps rare lottery spawns at their vanilla frequency instead of letting the spawn rate multiply them.
-				King Slime and the Prismatic Lacewing aren't drawn from the normal spawn pool, they roll dice on every spawn attempt, so cranking the spawn rate makes them appear far more often. At 200x King Slime keeps ambushing you near the world edges and a Lacewing is back within seconds of the Empress dying.
-				Only touches natural spawns, summoning items are unaffected. Defaults ON. Off = they scale with your spawn rate.
+				Keeps rare lottery spawns at vanilla frequency
+				instead of letting your spawn rate multiply them.
+				Mainly King Slime and the Prismatic Lacewing, which
+				would otherwise ambush you constantly at 200x.
+				Summoning items are unaffected. Defaults ON.
 				'''
 		}
 
@@ -62,19 +67,24 @@ Configs: {
 			Label: Lacewing Spawn Boost
 			Tooltip:
 				'''
-				Exception to the above, for the Prismatic Lacewing only. Finding one is a hunt rather than an ambush, so full vanilla rarity makes it a chore when everything else is spawning fast. This keeps it this many times more common than vanilla.
-				It still drops back to full vanilla rarity for two minutes after the Empress of Light spawns or dies, so you don't walk straight into re-summoning her.
+				Exception to the above, for the Prismatic Lacewing:
+				it stays this many times more common than vanilla,
+				since hunting one at full rarity is a chore.
+				Vanilla rarity returns for 2 minutes after the
+				Empress spawns or dies.
 				No effect if Normalize Rare Spawns is OFF.
 				'''
 		}
 
 		SpreadSpawnPositions: {
-			Label: Spread Out Spawn Positions (Experimental)
+			Label: Spread Out Spawns (Experimental)
 			Tooltip:
 				'''
-				Nudges each newly spawned enemy slightly sideways, so two that pick the same spot don't stand exactly on top of each other and move as one.
-				The game drops enemies into a narrow ring around you, and at a high spawn rate the same spot comes up constantly. Skipped when the nudge would put the enemy inside a wall, so nothing spawns that wouldn't have.
-				Experimental, so it defaults OFF: the staggered arrivals can read as out of place.
+				Nudges each new spawn slightly sideways, so two that
+				land on the same spot don't move as one.
+				Skipped if the nudge would put it inside a wall.
+				EXPERIMENTAL, off by default: staggered arrivals can
+				read as out of place.
 				'''
 		}
 
@@ -82,9 +92,12 @@ Configs: {
 			Label: Widen Spawn Area (Experimental)
 			Tooltip:
 				'''
-				Spreads spawns around a wider ring, scaled to your spawn rate, so a horde arrives spread across the horizon instead of piling into the same few spots.
-				Experimental, so it defaults OFF, and it comes with a real trade: part of what spawns is decided by the ground the spawn lands on, so a wider ring drags in enemies from neighbouring biomes, and everything takes longer to reach you.
-				Enemies still appear off-screen and stay close enough to come find you. No effect at 1x spawn rate.
+				Spreads spawns around a wider ring, scaled to your
+				spawn rate, instead of piling them in a few spots.
+				EXPERIMENTAL, off by default: a wider ring reaches
+				the next biome's ground, so its enemies turn up at
+				you, and everything takes longer to arrive.
+				No effect at 1x spawn rate.
 				'''
 		}
 
@@ -92,11 +105,14 @@ Configs: {
 			Label: Mode
 			Tooltip:
 				'''
-				- Default: the vanilla 200-NPC limit, NO engine patching. Safest and most cross-mod friendly.
-					All the spawn, category, and event tuning below still works, just within 200 entity limit.
-				- Expanded: raises the limit to 'Max Total NPCs' (default 750) for the full horde experience.
+				Default: vanilla's 200-NPC limit, no engine patching.
+				Safest, and friendliest to other mods. The spawn and
+				category tuning below still works within the 200.
 
-				!! Single-player only for now. Changing this reloads the mod (a full restart is safest).
+				Expanded: raises the limit to Max Total NPCs, 750 by
+				default, for the full horde.
+
+				!! Single-player only for now.
 				'''
 		}
 
@@ -104,9 +120,11 @@ Configs: {
 			Label: Max Total NPCs
 			Tooltip:
 				'''
-				The total NPC budget in EXPANDED mode, shared between the four category slots below.
-				The four slots should add up to this (default: 100 Town + 100 Boss + 25 Critter + 525 Enemies = 750).
-				Ignored in Default mode (it's clamped to vanilla 200). Needs a reload to change.
+				The total NPC budget in Expanded mode, shared by the
+				four category slots below.
+				They should add up to this: 100 Town + 100 Boss +
+				25 Critter + 525 Enemies = 750.
+				Ignored in Default mode (clamped to vanilla 200).
 				'''
 		}
 
@@ -114,9 +132,12 @@ Configs: {
 			Label: Town NPC Slots
 			Tooltip:
 				'''
-				How many town NPCs, pets and wandering merchants you can have.
-				Default: acts as a hard ceiling for friendly NPCs, if there is a free slot, a low-priority enemy/critter gets despawned	to make room if the 200 is full.
-				Expanded: reserved slots down in the native 0-199 zone (shared with Boss), so housing, the map and saving all behave.
+				How many town NPCs, pets and wandering merchants you
+				can have.
+				Default: a ceiling within the shared 200. A low
+				priority enemy or critter is despawned to make room.
+				Expanded: reserved slots in the native 0-199 zone,
+				shared with Boss, so housing and saving stay vanilla.
 				'''
 		}
 
@@ -124,9 +145,13 @@ Configs: {
 			Label: Boss Slots
 			Tooltip:
 				'''
-				Bosses always spawn at full size and never get turned away, a single worm boss eats MANY of these slots (a full Destroyer is ~85 head + body segments), so keep this generous.
-				Default: not a hard limit, just whether to despawn low-priority enemies/critters to ensure a full-size boss spawns.
-				Expanded: reserved in the native 0-199 zone (shared with Town) so boss bars and 'is a boss alive' checks stay vanilla; the other categories are sized around it.
+				Bosses always spawn full size and are never turned
+				away, and one worm eats many slots (a full Destroyer
+				is ~85 head plus body). Keep this generous.
+				Default: not a hard limit, just permission to
+				despawn enemies so a boss fits.
+				Expanded: reserved in the native 0-199 zone, shared
+				with Town, so boss bars and checks stay vanilla.
 				'''
 		}
 
@@ -134,10 +159,12 @@ Configs: {
 			Label: Critter Slots
 			Tooltip:
 				'''
-				How many critters can be around at once. Mostly here to stop critter floods.
-				A town (3+ Town NPCs with housing) suppresses enemy spawns, so the place otherwise fills up with owls and birds being way too noisy. (Personal painpoint tbh)
-				Default: just a ceiling within the shared 200.
-				Expanded: lives up in the expanded zone (slots 200+) alongside enemies, outside the native 0-199 array.
+				How many critters can be around at once. Mostly here
+				to stop critter floods: a town suppresses enemy
+				spawns, so it fills up with noisy birds and owls.
+				Default: a ceiling within the shared 200.
+				Expanded: lives in the expanded zone, slots 200+,
+				alongside enemies.
 				'''
 		}
 
@@ -145,13 +172,16 @@ Configs: {
 			Label: Enemy Slots
 			Tooltip:
 				'''
-				How many normal enemies can be active at once, your horde size slider, should be the biggest slice of the budget.
-				Default: just a ceiling within the shared 200.
-				Expanded: enemies primarily live in the expanded zone (slots 200+), while Town + Boss share the native 0-199.
-					!NOTICE!
-					Pushing Enemy + Critter past what the expanded zone holds (Max Total - 200);
-					the overflow spills into the low slots, where it can crowd out Town NPC / Boss spawns. 
-					(despawn-to-make-room can't tell low from high slots in Expanded yet)
+				How many normal enemies can be active at once: your
+				horde-size slider, and the biggest slice of the
+				budget.
+				Default: a ceiling within the shared 200.
+				Expanded: enemies live in the expanded zone (200+),
+				while Town and Boss share the native 0-199.
+
+				!NOTICE! Enemy + Critter above (Max Total - 200)
+				spills into the low slots and can crowd out town
+				NPCs and bosses.
 				'''
 		}
 
@@ -161,13 +191,14 @@ Configs: {
 				'''
 				The big one for frame rate. Leave this on.
 
-				Every enemy projectile searches the whole NPC list each tick for something to hit, even
-				though the only thing it can actually damage is a town NPC. With a raised cap that single
-				search was 95% of all projectile time - it is what turns a screen full of harpies or
-				spike slimes into a slideshow.
+				Every enemy projectile searches the whole NPC list
+				each tick, though all it can hurt is a town NPC.
+				At a raised cap that was 95% of all projectile time,
+				and it is what turns a screen of harpies into a
+				slideshow.
 
-				On, enemy projectiles stop searching past the last town NPC.
-				Your own weapons are not affected and still reach every enemy.
+				On, they stop searching past the last town NPC.
+				Your own weapons still reach every enemy.
 				'''
 		}
 
@@ -175,14 +206,15 @@ Configs: {
 			Label: Fast Scan Even With Other Mods
 			Tooltip:
 				'''
-				Only matters if the load log says the fast scan was held back.
+				Only matters if the load log says the fast scan was
+				held back.
 
-				Some mods let enemy projectiles damage other enemies. The fast scan above cannot tell
-				that apart, so when such a mod is loaded it switches itself off and names the mod in the
-				log, keeping the old (correct, slower) behaviour.
+				Some mods let enemy projectiles hurt other enemies.
+				The scan above can't tell that apart, so it switches
+				itself off and names the mod in the log.
 
-				Turn this on to use the fast scan anyway: you get the frame rate back, and enemies will
-				stop damaging each other.
+				Turn this on to use it anyway: you get the frame
+				rate back, and enemies stop hurting each other.
 				'''
 		}
 
@@ -192,8 +224,9 @@ Configs: {
 				'''
 				! Leave this off for normal play.
 
-				Auto-writes diagnostics to ManyMoreMobs-state.log on world load and before each save.
-				/mmm and /mmmdebug commands always log anyway. Needed for /mmmdebug perf.
+				Writes diagnostics to ManyMoreMobs-state.log on
+				world load and before each save.
+				/mmm and /mmmdebug log anyway. Needed for perf.
 				'''
 		}
 
@@ -201,9 +234,13 @@ Configs: {
 			Label: Raise The Limit Before Other Mods Load
 			Tooltip:
 				'''
-				Other mods ask Terraria how many NPC slots exist and build their own arrays and loops from the answer. They ask while they are loading, so the answer they get has to already be the raised one - otherwise everything they built is sized for 200 while enemies live above slot 199, and the crash that follows lands inside the spawn loop and the enemy update loop. In game that looks like enemies simply never spawning.
-				With this on, the limit is raised before any other mod loads, so big content mods size themselves correctly on their own. Their code was never wrong; the raised ceiling is what broke the assumption.
-				Needs a reload. Turn it off to go back to the old behaviour if a mod dislikes the bigger arrays.
+				Other mods ask Terraria how many NPC slots exist and
+				size their own arrays from the answer, while they
+				load. If the answer is still 200 they crash once an
+				enemy lives above slot 199, which in game looks like
+				enemies never spawning.
+				On, the limit is raised before any other mod loads.
+				Turn it off for the old behaviour.
 				'''
 		}
 
@@ -211,9 +248,13 @@ Configs: {
 			Label: Fix Other Mods' NPC Limit (Fallback)
 			Tooltip:
 				'''
-				A second, heavier way to fix the same problem: it rewrites other mods' compiled code so their reads of the NPC limit return the real cap.
-				Only worth turning on if a mod still misbehaves with the option above enabled. It cannot help a mod that types 200 by hand instead of asking, and it costs several seconds of loading time with a large mod list.
-				Needs a reload. If some mod misbehaves either way, let me know which one.
+				A heavier fallback for the same problem: it rewrites
+				other mods' compiled code so their reads of the NPC
+				limit return the real cap.
+				Only worth it if a mod still misbehaves with the
+				option above on. It can't help a mod that types 200
+				by hand, and it costs seconds of loading time.
+				If one misbehaves either way, let me know which.
 				'''
 		}
 
@@ -221,9 +262,17 @@ Configs: {
 			Label: Experimental Multiplayer Fixes
 			Tooltip:
 				'''
-				! Multiplayer is still NOT supported. This is a best-effort experiment, untested by me, so treat any multiplayer session as a test run.
-				Terraria's netcode throws away several packets aimed at NPCs living in the expanded slots, which is why critters in multiplayer go into the net and straight back out again. This widens those checks so the packets land: critter catching, enemy invulnerability frames, debuff removal, and the batch of NPCs a joining player gets sent.
-				Does nothing at all in single-player. Host decides for the session, and it applies live with no reload. Off = untouched vanilla netcode.
+				! Multiplayer is still NOT supported. Best-effort
+				and untested by me, so treat a session as a test.
+
+				Terraria's netcode drops packets aimed at NPCs in
+				the expanded slots, which is why caught critters pop
+				straight back out. This widens those checks: critter
+				catching, immunity frames, debuff removal, and the
+				NPCs a joining player is sent.
+
+				Nothing happens in single-player. The host decides,
+				and it applies live.
 				'''
 		}
 	}
@@ -242,8 +291,10 @@ Configs: {
 			Label: Use Biome-Specific Modifiers
 			Tooltip:
 				'''
-				OFF: ManyMoreMobsConfig page's blanket Spawn Rate / Max Spawn multipliers apply everywhere.
-				ON: each biome below uses its own multipliers instead (1.0 = vanilla biome's baseline).
+				OFF: the blanket Spawn Rate / Max Spawns from the
+				main page apply everywhere.
+				ON: each biome below uses its own multipliers
+				instead. 1.0 = that biome's vanilla baseline.
 				'''
 		}
 
@@ -341,12 +392,12 @@ Configs: {
 	BiomeSpawnRates: {
 		SpawnRateMultiplier: {
 			Label: Spawn Rate Multiplier
-			Tooltip: Higher = enemies spawn more often in this biome (1 = vanilla).
+			Tooltip: Higher = enemies spawn more often here. 1 = vanilla.
 		}
 
 		MaxSpawnMultiplier: {
 			Label: Max Spawn Multiplier
-			Tooltip: Higher = allows more enemies to spawn in this biome (1 = vanilla).
+			Tooltip: Higher = more enemies active here. 1 = vanilla.
 		}
 
 		Tooltip: ""
@@ -365,8 +416,10 @@ Configs: {
 			Label: Water Candle
 			Tooltip:
 				'''
-				Strength of the Water Candle effect (held or placed), including its extra deep-cave boost.
-				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				Strength of the Water Candle, held or placed,
+				including its deep-cave boost.
+				Multiplies the item's own effect. 1 = vanilla,
+				0 = off, higher = stronger. Stacks with your rates.
 				'''
 		}
 
@@ -375,7 +428,8 @@ Configs: {
 			Tooltip:
 				'''
 				Strength of the Battle Potion buff (more spawns).
-				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				Multiplies the item's own effect. 1 = vanilla,
+				0 = off, higher = stronger. Stacks with your rates.
 				'''
 		}
 
@@ -384,7 +438,8 @@ Configs: {
 			Tooltip:
 				'''
 				Strength of the Peace Candle (fewer spawns).
-				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				Multiplies the item's own effect. 1 = vanilla,
+				0 = off, higher = stronger. Stacks with your rates.
 				'''
 		}
 
@@ -393,7 +448,8 @@ Configs: {
 			Tooltip:
 				'''
 				Strength of the Calming Potion buff (fewer spawns).
-				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				Multiplies the item's own effect. 1 = vanilla,
+				0 = off, higher = stronger. Stacks with your rates.
 				'''
 		}
 
@@ -402,7 +458,8 @@ Configs: {
 			Tooltip:
 				'''
 				Strength of standing near a Sunflower (fewer spawns).
-				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				Multiplies the item's own effect. 1 = vanilla,
+				0 = off, higher = stronger. Stacks with your rates.
 				'''
 		}
 
@@ -410,8 +467,9 @@ Configs: {
 			Label: Invisibility
 			Tooltip:
 				'''
-				Strength of the Invisibility effect's spawn reduction.
-				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				Strength of Invisibility's spawn reduction.
+				Multiplies the effect. 1 = vanilla, 0 = off,
+				higher = stronger. Stacks with your rates.
 				'''
 		}
 
@@ -419,8 +477,9 @@ Configs: {
 			Label: Angler Armor Set
 			Tooltip:
 				'''
-				Strength of the full Angler armor set's spawn reduction.
-				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				Strength of the full Angler set's spawn reduction.
+				Multiplies the effect. 1 = vanilla, 0 = off,
+				higher = stronger. Stacks with your rates.
 				'''
 		}
 
@@ -428,8 +487,9 @@ Configs: {
 			Label: Nearby Fairy
 			Tooltip:
 				'''
-				Strength of the spawn reduction while near a fairy.
-				This MULTIPLIES the item's own effect (1 = vanilla, 0 = off, above 1 = stronger) and stacks with your General Spawn Rate / Max Spawns, it never sets or overrides the spawn rate.
+				Strength of the spawn reduction near a fairy.
+				Multiplies the effect. 1 = vanilla, 0 = off,
+				higher = stronger. Stacks with your rates.
 				'''
 		}
 
@@ -437,8 +497,10 @@ Configs: {
 			Label: Shadow Candle (town NPC suppression)
 			Tooltip:
 				'''
-				Separate from the spawn-rate items above: this only governs how strongly the Shadow Candle stops TOWN NPCs from spawning. 
-				1 = full vanilla suppression, 0 = no suppression. Does not directly modify enemy spawn rate.
+				Separate from the items above: this only sets how
+				strongly the Shadow Candle blocks TOWN NPC spawns.
+				1 = full vanilla suppression, 0 = none.
+				It does not change the enemy spawn rate.
 				'''
 		}
 	}
@@ -455,8 +517,10 @@ Configs: {
 			Label: Invasion Size Multiplier
 			Tooltip:
 				'''
-				Multiplies how many enemies you need to defeat to finish an invasion (Goblin / Frost Legion / Pirate / Martian).
-				1 = vanilla. Recommended keep higher so invasions don't end in seconds at high spawn rates.
+				Multiplies how many kills an invasion needs (Goblin,
+				Frost Legion, Pirate, Martian). 1 = vanilla.
+				Keep it higher so invasions don't end in seconds at
+				a high spawn rate.
 				'''
 		}
 
@@ -464,8 +528,10 @@ Configs: {
 			Label: Normal Spawns During Old One's Army
 			Tooltip:
 				'''
-				How much of the normal (non-event) spawn rate keeps going while Old One's Army runs, so the Etherian enemies stand out.
-				0 = no normal spawns, 1 = full. Doesn't modify the event enemies.
+				How much normal (non-event) spawning carries on
+				while Old One's Army runs, so the Etherian enemies
+				stand out.
+				0 = none, 1 = full. Event enemies are untouched.
 				'''
 		}
 
@@ -473,8 +539,9 @@ Configs: {
 			Label: Old One's Army Spawn Rate
 			Tooltip:
 				'''
-				How much faster the portals pump out Etherian enemies.
-				1 = vanilla. Higher = more pouring out of the gates so the waves don't drag on higher wave lengths.
+				How much faster the portals pump out Etherian
+				enemies. 1 = vanilla.
+				Higher = more pouring out, so long waves don't drag.
 				'''
 		}
 
@@ -482,8 +549,8 @@ Configs: {
 			Label: Old One's Army Wave Length
 			Tooltip:
 				'''
-				Multiplies how many kills each Old One's Army wave needs.
-				1 = vanilla. Higher = more kills required per wave.
+				Multiplies the kills each Old One's Army wave needs.
+				1 = vanilla. Higher = longer waves.
 				'''
 		}
 
@@ -491,8 +558,9 @@ Configs: {
 			Label: Moon Wave Length Multiplier
 			Tooltip:
 				'''
-				Multiplies the points needed to advance each Pumpkin / Frost Moon wave.
-				1 = vanilla. Higher = more time and more enemies per wave before you climb to the next.
+				Multiplies the points needed to advance a Pumpkin or
+				Frost Moon wave.
+				1 = vanilla. Higher = more enemies per wave.
 				'''
 		}
 	}
@@ -511,9 +579,13 @@ Configs: {
 			Label: Melee Hits All In Swing
 			Tooltip:
 				'''
-				Lets one true-melee swing (sword / whip) hit EVERY enemy in its arc instead of just one per frame, each enemy still has its own hit cooldown.
-				Defaults ON, since single-target melee really struggles against the crowds this mod can throw at you.
-				Also makes the per-enemy hit cooldown count down for swords that attack through a projectile (Night's Edge, Terra Blade and the like), which the game otherwise never ticks for them. That is a safety measure rather than a damage increase: it stops a stuck cooldown from leaving an enemy unhittable.
+				Lets one true-melee swing (sword or whip) hit EVERY
+				enemy in its arc, not just one per frame. Each enemy
+				still has its own hit cooldown.
+				Defaults ON: single-target melee struggles against
+				the crowds this mod throws at you.
+				Also keeps that cooldown ticking for swords that
+				swing as a projectile, which vanilla never does.
 				'''
 		}
 
@@ -521,8 +593,11 @@ Configs: {
 			Label: Melee Extra Pierce
 			Tooltip:
 				'''
-				Extra enemies a melee projectile (sword beams, swung-weapon projectiles) can pierce through.
-				Defaults to 5. The big swords swing as a projectile with a hard enemy cap baked in, Night's Edge stops at 2 per swing, Excalibur and Terra Blade at 3, True Excalibur at 6, and the rest of the swing deals nothing. Fine in vanilla, but in a crowd it reads as the sword whiffing.
+				Extra enemies a melee projectile (sword beams, swung
+				weapons) can pierce. Defaults to 5.
+				The big swords have a hard cap baked in: Night's
+				Edge stops at 2 enemies a swing, Excalibur and Terra
+				Blade at 3. In a crowd that reads as a whiff.
 				0 = vanilla.
 				'''
 		}
@@ -531,7 +606,9 @@ Configs: {
 			Label: Melee Anti-Tunnel
 			Tooltip:
 				'''
-				Makes fast melee projectiles register on every enemy along their path each frame, instead of skipping over ones they zip past too quickly.
+				Makes fast melee projectiles register on every enemy
+				along their path each frame, instead of skipping the
+				ones they zip past.
 				Off = vanilla.
 				'''
 		}
@@ -540,9 +617,11 @@ Configs: {
 			Label: Melee No Pierce Falloff
 			Tooltip:
 				'''
-				Piercing melee projectiles keep their per-hit damage right across a crowd, instead of it shrinking with every enemy pierced.
-				Defaults ON. Vanilla drops roughly 30% per enemy pierced, fine over 5 enemies, but across a horde it decays to 1 damage and the weapon feels broken.
-				Off = vanilla.
+				Piercing melee projectiles keep full damage across a
+				crowd, instead of losing ~30% per enemy pierced.
+				Fine over 5 enemies, but across a horde it decays to
+				1 damage and the weapon feels broken.
+				Defaults ON. Off = vanilla.
 				'''
 		}
 
@@ -550,7 +629,8 @@ Configs: {
 			Label: Ranged Extra Pierce
 			Tooltip:
 				'''
-				Extra enemies a ranged projectile (bullets / arrows) can pierce, so guns aren't single-target in a crowd.
+				Extra enemies a bullet or arrow can pierce, so guns
+				aren't single-target in a crowd.
 				0 = vanilla.
 				'''
 		}
@@ -559,7 +639,9 @@ Configs: {
 			Label: Ranged Anti-Tunnel
 			Tooltip:
 				'''
-				Makes fast arrows/bullets register on every enemy along their path each frame, instead of tunnelling through ones they zip past too quickly.
+				Makes fast arrows and bullets register on every
+				enemy along their path each frame, instead of
+				tunnelling through the ones they zip past.
 				Off = vanilla.
 				'''
 		}
@@ -568,8 +650,10 @@ Configs: {
 			Label: Ranged No Pierce Falloff
 			Tooltip:
 				'''
-				Piercing arrows/bullets keep their per-hit damage across a crowd, instead of it shrinking with every enemy pierced.
-				Fixes "infinite pierce" arrows (e.g. Jester's Arrow) reaching the far end of a horde for ~0 damage.
+				Piercing arrows and bullets keep full damage across
+				a crowd instead of shrinking with every enemy hit.
+				Fixes infinite-pierce arrows (Jester's Arrow) that
+				reach the far end of a horde for ~0 damage.
 				Defaults ON. Off = vanilla.
 				'''
 		}
@@ -578,7 +662,7 @@ Configs: {
 			Label: Magic Extra Pierce
 			Tooltip:
 				'''
-				Extra enemies a magic projectile can pierce through.
+				Extra enemies a magic projectile can pierce.
 				0 = vanilla.
 				'''
 		}
@@ -587,7 +671,9 @@ Configs: {
 			Label: Magic Anti-Tunnel
 			Tooltip:
 				'''
-				Makes fast magic projectiles register on every enemy along their path each frame, instead of skipping over ones they zip past too quickly.
+				Makes fast magic projectiles register on every enemy
+				along their path each frame, instead of skipping the
+				ones they zip past.
 				Off = vanilla.
 				'''
 		}
@@ -596,7 +682,8 @@ Configs: {
 			Label: Magic No Pierce Falloff
 			Tooltip:
 				'''
-				Piercing magic projectiles keep their per-hit damage across a crowd, instead of it shrinking with every enemy pierced.
+				Piercing magic projectiles keep full damage across a
+				crowd instead of shrinking with every enemy hit.
 				Defaults ON. Off = vanilla.
 				'''
 		}
@@ -605,9 +692,12 @@ Configs: {
 			Label: Summon No Pierce Falloff
 			Tooltip:
 				'''
-				Whips keep their per-hit damage all the way along a swing, instead of it shrinking with every enemy struck.
-				Whips count as summon damage, not melee, so the Melee toggle above does not cover them, they need this one.
-				Defaults ON. Vanilla decay is steep enough that a Cool Whip hits 0 damage by the ninth enemy in one swing. Off = vanilla.
+				Whips keep full damage all along a swing instead of
+				shrinking with every enemy struck.
+				Whips count as summon damage, so the melee toggle
+				above does not cover them.
+				Defaults ON. Vanilla decay puts a Cool Whip at 0
+				damage by the ninth enemy. Off = vanilla.
 				'''
 		}
 	}

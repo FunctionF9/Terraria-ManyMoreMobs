@@ -53,6 +53,11 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 
 
 # Versioning History
+## Version 0.7.8.4 - readable settings tooltips
+- Setting descriptions no longer run off the edge of the screen. The game draws these with no line wrapping of its own, so a long line simply kept going past the screen edge and the start of it could not be read.
+- Every description is now written short and pre-wrapped to a fixed width. The long explanations live here in the version history instead.
+- Spread Out Spawn Positions is now called Spread Out Spawns, so the name fits its row.
+
 ## Version 0.7.8.3 - spread spawn patch testing
 - Two new settings under Spawn Rate, both **experimental and off by default**, aimed at enemies appearing stacked on the same spot and moving as one. Reported as "typically 2 spawn right on top of each other and perfectly overlapping and almost perfectly move in sync until player intervention".
 - Cause: the game places every natural spawn in a narrow ring around you, about 22 tile columns each side and just off-screen, picking one column at random and dropping the enemy on the ground there. That is sized for a spawn every few seconds. This mod asks for one nearly every frame, so the same column comes up about once a second, two enemies land on the identical tile, and identical enemies chasing the same player then move identically.
