@@ -46,6 +46,8 @@ registered through `MonoModHooks`, so they all cleanly auto-undo when the mod un
 
 
 ## For other modders
+It's all AI-slop, slopped together. MIT-licensed, so go wild and do whatever.
+
 It's all managed IL (MonoMod + reflection) — no native code. If you're building a compatibility or "bridge"
 mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `Spawning/SlotAllocator`
 (where NPCs land) and `Spawning/NewNpcGate` (the spawn chokepoint + categories). MIT-licensed, so go wild.
@@ -53,6 +55,15 @@ mod, the spots that matter most are `Engine/EngineILPatcher` (what's patched), `
 
 
 # Versioning History
+## Version 0.7.8.5 - multi-segment hotfix
+- Worms and other creatures built from linked parts should no longer turn up as a head with little or nothing behind it. Reported against a Wyvern and against a modded worm boss.
+- Cause, confirmed from a dump of a broken Wyvern: the body was all there, but every part except one had an invalid position, which makes a part invisible, immovable and impossible to kill while it still holds its slot. The game steers each part by the distance to the one in front of it, and divides by that distance. Every part of a body is created on the same spot, so a part that takes its first step before the one in front of it has moved divides by zero and is ruined permanently. The game avoids this by always placing a new part in a slot after its head, so the head moves first; this mod sorts slots by category instead, and a body landing below its head ran in the wrong order.
+- Parts are now created a fraction of a pixel apart, which is all it takes for that distance to never be zero. This covers bodies from other mods too, since it does not depend on knowing how they move.
+- Parts are also placed after their head again whenever there is room, which restores the order the game expects and keeps a long body from trailing behind itself.
+- Recognising a body no longer depends on the game's own worm behaviour id, which a mod that writes its own movement code does not use, and which never covered a boss assembled from limbs rather than segments. A body is now also recognised the way the game itself marks one: the parent asks for its new part to be placed starting from its own slot. That is what every worm, and every boss with hands, arms, hooks or tails, already does.
+- Repaired the fallback the slot allocator uses if its own search ever fails. It handed the request back to the game, whose search stops at the old limit of 200 and so cannot work from any slot above it - which is exactly where a body is assembled.
+- Diagnostics: `/mmm info` now reports NPCs stuck at an invalid position, `/mmmdebug dumpall` prints those coordinates as NaN instead of a plausible-looking number, lists every multi-part body with how many of its parts are broken, and flags a part that could not be placed at all.
+
 ## Version 0.7.8.4 - readable settings tooltips
 - Setting descriptions no longer run off the edge of the screen. The game draws these with no line wrapping of its own, so a long line simply kept going past the screen edge and the start of it could not be read.
 - Every description is now written short and pre-wrapped to a fixed width. The long explanations live here in the version history instead.

@@ -33,7 +33,22 @@ namespace ManyMoreMobs
         // which CategorizeType (which only sees the segment's own type) could not detect. Consumed once.
         [System.ThreadStatic] private static NpcCategory? _categoryHint;
 
+        // The slot of the NPC a body part was spawned from, or -1. Consumed once, like the category hint.
+        [System.ThreadStatic] private static int _chainParentHint = -1;
+
         public static void SetCategoryHint(NpcCategory category) => _categoryHint = category;
+
+        /// <summary>
+        /// Tell the next allocation that it is a part of the body living in <paramref name="parentSlot"/>, so
+        /// it can be placed the way the engine expects: ABOVE its parent.
+        /// <para/>
+        /// This is not cosmetic. <c>Main.UpdateNPCs</c> walks slots in ascending order, and a body part follows
+        /// whatever is in front of it using that thing's CURRENT position. Vanilla guarantees the order by
+        /// passing the head's own slot as <c>NewNPC</c>'s Start, so the head always moves before the parts
+        /// behind it do. Zoning by category ignores Start, and Enemy fills downward, so parts were landing
+        /// BELOW their head and updating before it — see <see cref="NewNpcGate"/> for what that costs.
+        /// </summary>
+        public static void SetChainParentHint(int parentSlot) => _chainParentHint = parentSlot;
 
         public static void Apply(Mod mod)
         {
@@ -66,6 +81,19 @@ namespace ManyMoreMobs
                 NpcCategory category = _categoryHint ?? NpcCategorizer.CategorizeType(type);
                 _categoryHint = null;
 
+                int chainParent = _chainParentHint;
+                _chainParentHint = -1;
+
+                // A body part goes straight after its parent when anything up there is free, which restores
+                // the update order vanilla relies on. When the zone above is full it falls through to the
+                // ordinary search and the part is placed wherever it fits — still correct, just a frame
+                // behind, and the spawn separation in NewNpcGate is what keeps that survivable.
+                if (chainParent >= 0)
+                {
+                    int above = FirstFreeAbove(chainParent, cap);
+                    if (above >= 0) return above;
+                }
+
                 bool lowFirst = category == NpcCategory.Town || category == NpcCategory.Boss;
 
                 // Pass 1: a truly free slot, preferred direction then the other.
@@ -85,21 +113,59 @@ namespace ManyMoreMobs
             catch (Exception e)
             {
                 MmmLog.Report(e, $"SlotAllocator (type {type})");
-                return orig(type, startIndex); // never break spawning
+
+                // Deliberately NOT orig(type, startIndex). Vanilla's search ends on `i != 200`, so from any
+                // startIndex above 199 it can never reach its own terminator and walks off the end of Main.npc
+                // instead. Every enemy lives above 199 under a raised cap, and a worm asks for its segments
+                // with the HEAD's slot as the start — the highest occupied index there is, since Enemy spawns
+                // fill downward — so this fallback would fail exactly where a body is being assembled.
+                return SafeScan(EngineState.NpcCap);
             }
         }
 
+        /// <summary>
+        /// A whole-array search that cannot throw and cannot be confused by the raised cap: the fallback for
+        /// when the zoned search above fails. Free slots first, then replaceable ones, ignoring zoning — at
+        /// this point placing the NPC at all matters more than placing it well.
+        /// </summary>
+        private static int SafeScan(int cap)
+        {
+            int end = Math.Min(cap, Main.npc.Length);
+
+            for (int i = end - 1; i >= 0; i--)
+                if (Main.npc[i] != null && !Main.npc[i].active) return i;
+
+            for (int i = end - 1; i >= 0; i--)
+                if (Main.npc[i] != null && Main.npc[i].CanBeReplacedByOtherNPCs && !SegmentChain.IsMember(i)) return i;
+
+            return -1;
+        }
+
+        /// <summary>First free slot strictly above <paramref name="parentSlot"/>, or -1 if there is none.</summary>
+        private static int FirstFreeAbove(int parentSlot, int cap)
+        {
+            int end = Math.Min(cap, Main.npc.Length);
+            for (int i = parentSlot + 1; i < end; i++)
+                if (Main.npc[i] != null && !Main.npc[i].active) return i;
+            return -1;
+        }
+
+        // All four passes bound themselves by the ARRAY, not just the cap. The two are meant to agree (the
+        // resizer makes Main.npc cap+1 long), but if they ever drift, an out-of-range read here would throw
+        // the whole allocation into the fallback above — and a worm mid-assembly would lose its remaining
+        // segments to it. Costs one Math.Min per spawn.
         private static int FreeAscending(int cap)
         {
-            for (int i = 0; i < cap; i++)
-                if (!Main.npc[i].active) return i;
+            int end = Math.Min(cap, Main.npc.Length);
+            for (int i = 0; i < end; i++)
+                if (Main.npc[i] != null && !Main.npc[i].active) return i;
             return -1;
         }
 
         private static int FreeDescending(int cap)
         {
-            for (int i = cap - 1; i >= 0; i--)
-                if (!Main.npc[i].active) return i;
+            for (int i = Math.Min(cap, Main.npc.Length) - 1; i >= 0; i--)
+                if (Main.npc[i] != null && !Main.npc[i].active) return i;
             return -1;
         }
 
@@ -108,15 +174,16 @@ namespace ManyMoreMobs
         // otherwise overwrite a worm boss's own segments — the Pass-2 twin of the EntityEvictor's guard.
         private static int ReplaceableAscending(int cap)
         {
-            for (int i = 0; i < cap; i++)
-                if (Main.npc[i].CanBeReplacedByOtherNPCs && !SegmentChain.IsMember(i)) return i;
+            int end = Math.Min(cap, Main.npc.Length);
+            for (int i = 0; i < end; i++)
+                if (Main.npc[i] != null && Main.npc[i].CanBeReplacedByOtherNPCs && !SegmentChain.IsMember(i)) return i;
             return -1;
         }
 
         private static int ReplaceableDescending(int cap)
         {
-            for (int i = cap - 1; i >= 0; i--)
-                if (Main.npc[i].CanBeReplacedByOtherNPCs && !SegmentChain.IsMember(i)) return i;
+            for (int i = Math.Min(cap, Main.npc.Length) - 1; i >= 0; i--)
+                if (Main.npc[i] != null && Main.npc[i].CanBeReplacedByOtherNPCs && !SegmentChain.IsMember(i)) return i;
             return -1;
         }
     }

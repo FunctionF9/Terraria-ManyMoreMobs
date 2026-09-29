@@ -23,6 +23,18 @@ namespace ManyMoreMobs
         /// <summary>Game tick of the most recent refusal, or -1 if the gate has never refused a spawn.</summary>
         internal static long LastRefusalTick = -1;
 
+        // ── Multi-part bodies: a segment that was GUARANTEED a slot and still did not get one. ──
+        // The one counter here that should always read zero. Everything else in this class records a decision
+        // the mod made on purpose; this records the guarantee failing, which the player sees as a worm or a
+        // limbed boss that assembled half-way and then fell apart. Silent until 0.7.8.5.
+        internal static long SegmentSpawnFailures;
+
+        /// <summary>Type of the segment that could not be placed, and of the body it belonged to. -1 if none.</summary>
+        internal static int LastSegmentFailType = -1, LastSegmentFailParentType = -1;
+
+        /// <summary>Game tick of the most recent failed segment, or -1 if it has never happened.</summary>
+        internal static long LastSegmentFailTick = -1;
+
         // ── Evictions: EntityEvictor deleted a live NPC to free a slot for a guaranteed spawn. ──
         internal static long Evictions, EvictionsOfChainMembers, EvictionsFailed;
 
@@ -61,6 +73,14 @@ namespace ManyMoreMobs
 
         internal static void CountEvictionFailure() => EvictionsFailed++;
 
+        internal static void CountSegmentFailure(int type, int parentType)
+        {
+            LastSegmentFailTick = (long)Main.GameUpdateCount;
+            LastSegmentFailType = type;
+            LastSegmentFailParentType = parentType;
+            SegmentSpawnFailures++;
+        }
+
         /// <summary>Total refusals across every category — the single number that answers "is the gate the reason?".</summary>
         internal static long TotalRefusals => RefusedTown + RefusedBoss + RefusedCritter + RefusedEnemy + RefusedPerTypeCap;
 
@@ -69,8 +89,10 @@ namespace ManyMoreMobs
         {
             RefusedTown = RefusedBoss = RefusedCritter = RefusedEnemy = RefusedPerTypeCap = 0;
             Evictions = EvictionsOfChainMembers = EvictionsFailed = 0;
-            LastRefusalTick = LastEvictionTick = -1;
+            SegmentSpawnFailures = 0;
+            LastRefusalTick = LastEvictionTick = LastSegmentFailTick = -1;
             LastEvictedType = -1;
+            LastSegmentFailType = LastSegmentFailParentType = -1;
         }
 
         /// <summary>"12s ago" / "never", for a tick stamp recorded by this class.</summary>

@@ -100,6 +100,8 @@ namespace ManyMoreMobs
                 // Source-aware category (detects boss segments/adds via their boss parent).
                 NpcCategory cat = NpcCategorizer.CategorizeSpawn(type, source, out bool bossParented);
                 bool chained = bossParented;
+                int parentType = -1;   // for the failure report below: which body lost a piece
+                int parentSlot = -1;   // and where it lives, for placement and spawn separation
 
                 // Multi-part bodies. A worm is a head plus dozens of segments, each its own NPC built one at a
                 // time by the head's AI, and a segment refused by a cap produces a visibly chopped worm (or a
@@ -116,14 +118,28 @@ namespace ManyMoreMobs
                 //   ordinary worms and Wyverns, whose heads are plain Enemies: nothing about an Enemy parent
                 //   marks its children as special, so before this they were capped like unrelated trash mobs.
                 //   Boss-bodied worms (the Destroyer) already arrive via bossParented and never reach here.
+                //
+                //   START — the parent asked for the child to be allocated from its OWN slot. That is the
+                //   engine's "this is a piece of me" idiom: 38 of the 77 NewNPC calls vanilla makes from NPC AI
+                //   pass whoAmI as Start, and every one of them builds a composite entity — Skeletron's hands,
+                //   Prime's arms, Plantera's hooks, Moon Lord's parts, and every worm. Modded bodies copy it
+                //   because they copy vanilla's worm code, so it is the one signal that works on an AI we have
+                //   never seen. It is what finally covers Calamity's Aquatic Scourge, whose head has
+                //   aiStyle -1 (custom AI) and whose boss flag is not set until the first time it is hit, so
+                //   neither of the two checks above can see that its 30-80 children are its own body.
+                //   (A parent sitting in slot 0 matches on Start 0 as well. Harmless: slot 0 is the reserved
+                //   Town/Boss zone, and the only cost of a false positive is a guaranteed slot.)
                 if (source is EntitySource_Parent parentSource && parentSource.Entity is NPC parentNpc && parentNpc.active)
                 {
+                    parentType = parentNpc.type;
+                    parentSlot = parentNpc.whoAmI;
+
                     if (SegmentChain.IsMember(parentNpc.whoAmI))
                     {
                         chained = true;
                         cat = SegmentChain.CategoryOf(parentNpc.whoAmI);
                     }
-                    else if (parentNpc.aiStyle == NPCAIStyleID.Worm)
+                    else if (parentNpc.aiStyle == NPCAIStyleID.Worm || start == parentNpc.whoAmI)
                     {
                         chained = true;
                         cat = NpcCategorizer.Categorize(parentNpc);
@@ -150,12 +166,29 @@ namespace ManyMoreMobs
                 }
 
                 // Hand the source-aware category to the slot allocator so boss segments/adds are placed in
-                // the boss (low) zone, not the enemy (high) zone.
+                // the boss (low) zone, not the enemy (high) zone. A part of a body also asks to be placed
+                // above the thing that spawned it, which is where the engine expects to find it.
                 SlotAllocator.SetCategoryHint(cat);
+                if (chained && parentSlot >= 0)
+                    SlotAllocator.SetChainParentHint(parentSlot);
 
                 int slot = guaranteed
                     ? SpawnGuaranteed(orig, source, x, y, type, start, ai0, ai1, ai2, ai3, target, cat)
                     : orig(source, x, y, type, start, ai0, ai1, ai2, ai3, target);
+
+                if (chained && slot < EngineState.NpcCap)
+                    SeparateFromSpawnPoint(slot);
+
+                // A piece of a body that was promised a slot and did not get one is the failure a player
+                // actually sees: half a worm, a boss missing its limbs. It was silent before 0.7.8.5, which is
+                // why it took a Workshop report to find. Count it, and say so in the log the first few times.
+                if (chained && slot >= EngineState.NpcCap)
+                {
+                    SpawnGateTelemetry.CountSegmentFailure(type, parentType);
+                    if (SpawnGateTelemetry.SegmentSpawnFailures <= 5)
+                        MmmLog.Warn($"Multi-part body left incomplete: no slot for segment type {type} of parent type {parentType}. " +
+                                    "The array is full and nothing could be freed for it. See /mmm blocked.");
+                }
 
                 // Tag the slot so the NEXT link in the chain (parented to this segment) is recognised. Bosses are
                 // tagged even when standing alone, so their adds inherit correctly. Always write (true OR false)
@@ -168,6 +201,39 @@ namespace ManyMoreMobs
             }
 
             return orig(source, x, y, type, start, ai0, ai1, ai2, ai3, target);
+        }
+
+        // Counts parts as they are created, only to keep consecutive ones off the same pixel. Wrapping is
+        // fine: all that matters is that a part and the part in front of it never share a position.
+        private static int _separationStep;
+
+        /// <summary>
+        /// Moves a newly created body part a fraction of a pixel, so it cannot sit EXACTLY on top of the part
+        /// in front of it.
+        /// <para/>
+        /// <b>Why a quarter of a pixel matters.</b> Vanilla's worm code steers each part by the distance to
+        /// the one ahead (<c>NPC.AI_006_Worms</c>, NPC.cs:55324):
+        /// <code>num66 = (num66 - num67) / num66;  num53 *= num66;  position.X += num53;</code>
+        /// At a distance of exactly zero that division is -Infinity, the multiply turns it into NaN, and the
+        /// part's position stays NaN for the rest of its life — it never draws, never moves, and still holds
+        /// its slot. Every part of a worm is created on the head's exact spawn point, so the ONLY thing that
+        /// normally saves them is running after the head has already moved. Vanilla guarantees that by
+        /// allocating parts from the head's slot upward; we zone by category instead, so when there is no room
+        /// above the head the parts land below it and update first, still stacked on the spawn point.
+        /// Confirmed in the field: a Wyvern whose 13 of 14 parts all read position NaN in /mmmdebug dumpall,
+        /// leaving the head and the single part whose parent was the head — the one thing that HAD moved.
+        /// <para/>
+        /// Separating them is enough on its own, because the maths only breaks at exactly zero: any non-zero
+        /// distance divides out to a unit vector. This runs for every part of every body, vanilla or modded,
+        /// and a quarter of a pixel is invisible.
+        /// </summary>
+        private static void SeparateFromSpawnPoint(int slot)
+        {
+            NPC part = Main.npc[slot];
+            if (part == null || !part.active)
+                return;
+
+            part.position.X += (_separationStep++ & 15) * 0.25f;
         }
 
         /// <summary>Record the spawned slot's chain membership (see <see cref="SegmentChain"/>) and pass it through.</summary>

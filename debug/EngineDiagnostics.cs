@@ -161,9 +161,22 @@ namespace ManyMoreMobs
             string version = ModContent.GetInstance<ManyMoreMobs>()?.Version?.ToString() ?? "?";
             var config = ModContent.GetInstance<ManyMoreMobsConfig>();
             int cap = EngineState.NpcCap;
-            int activeNpcs = 0;
+            int activeNpcs = 0, badPositions = 0, badPositionType = -1;
             for (int i = 0; i < cap && i < Main.npc.Length; i++)
-                if (Main.npc[i] != null && Main.npc[i].active) activeNpcs++;
+            {
+                NPC n = Main.npc[i];
+                if (n == null || !n.active) continue;
+                activeNpcs++;
+
+                // An NPC at a NaN position is the quietest failure state there is: it draws nothing, does
+                // nothing, cannot be killed, and holds its slot until the world unloads. Nothing else in this
+                // report would show it — the counts all look correct, because it IS there.
+                if (!float.IsFinite(n.position.X) || !float.IsFinite(n.position.Y))
+                {
+                    badPositions++;
+                    if (badPositionType < 0) badPositionType = n.type;
+                }
+            }
 
             sb.AppendLine($"[MMM] Many More Mobs {version} | cap {cap} {config?.CapMode.ToString() ?? "?"} | " +
                           $"early raise {(EarlyCapRaise.Applied ? "yes" : "NO")} | {activeNpcs} NPCs active");
@@ -269,6 +282,19 @@ namespace ManyMoreMobs
             Check(SpawnGateTelemetry.EvictionsOfChainMembers == 0, "evictions",
                   $"{SpawnGateTelemetry.EvictionsOfChainMembers} worm/boss segment(s) removed to make room, which unravels the body",
                   "/mmm blocked");
+
+            // NPCs stuck at a NaN position. Worth its own line above the gate counters, because the gate will
+            // report a clean bill of health while this is happening: the spawns all succeeded.
+            Check(badPositions == 0, "NPC positions",
+                  $"{badPositions} NPC(s) stuck at an invalid (NaN) position, first was type {badPositionType} " +
+                  $"'{(badPositionType >= 0 ? Lang.GetNPCNameValue(badPositionType) : "?")}' — invisible, immovable, still holding a slot",
+                  "/mmmdebug dumpall and read the multi-part bodies block");
+
+            // A body that could not finish assembling. Unlike a refusal at a ceiling, which is the mod doing
+            // its job, this one is always a defect: the player gets a worm with no worm attached.
+            Check(SpawnGateTelemetry.SegmentSpawnFailures == 0, "multi-part bodies",
+                  $"{SpawnGateTelemetry.SegmentSpawnFailures} piece(s) of a worm or limbed boss could not be placed",
+                  "/mmm blocked, and send client.log");
 
             sb.AppendLine($"patches {EngineILPatcher.PatchesApplied} ok/{failed} bad | arrays {Word(arrayBad)} | " +
                           $"immunity {Word(immuneBad)} | mod arrays {(stale < 0 ? "?" : Word(stale))} ({checkedCount} checked) | " +
@@ -391,6 +417,14 @@ namespace ManyMoreMobs
                 : "";
             sb.AppendLine($"evicted {SpawnGateTelemetry.Evictions} ({SpawnGateTelemetry.EvictionsOfChainMembers} segments — " +
                           $"each unravels a whole body), {SpawnGateTelemetry.EvictionsFailed} found nothing{evicted}");
+
+            // Printed even at zero: "0" here is the line that rules out a half-assembled worm, which is the
+            // hardest thing in this report for a player to describe and the easiest to mistake for a refusal.
+            sb.AppendLine($"incomplete bodies {SpawnGateTelemetry.SegmentSpawnFailures}" +
+                          (SpawnGateTelemetry.SegmentSpawnFailures > 0
+                              ? $" (last: segment type {SpawnGateTelemetry.LastSegmentFailType} of body type " +
+                                $"{SpawnGateTelemetry.LastSegmentFailParentType}, {SpawnGateTelemetry.Ago(SpawnGateTelemetry.LastSegmentFailTick)})"
+                              : " — every worm and limbed boss that spawned got all of its pieces"));
 
             // Verdict, most-specific first. Enemy is checked before the others because it is the ceiling that
             // ordinary spawns actually hit; a full array is reported last because it only bites guaranteed ones.
@@ -814,6 +848,13 @@ namespace ManyMoreMobs
             var typeHist = new Dictionary<(int type, NpcCategory cat), int>();
             var rows = new List<string>();
 
+            // Multi-part bodies, keyed by the slot they share their health with. A body that is present but
+            // broken looks completely normal in every aggregate above — right count, right category, right
+            // budget — so it needs its own block. parts/broken/lowest tell the three stories that matter:
+            // how much of the body exists, how much of it is unusable, and whether it was built in the order
+            // the engine expects (a lowest slot below the root means the parts update before their head).
+            var bodies = new Dictionary<int, (int parts, int broken, int lowest, int headType)>();
+
             for (int i = 0; i < len; i++)
             {
                 NPC n = Main.npc[i];
@@ -840,12 +881,26 @@ namespace ManyMoreMobs
                     n.friendly ? "f" : "-",
                     n.dontTakeDamage ? "i" : "-");
 
+                // An NPC whose position is not a finite number is invisible, immovable and permanently
+                // stuck, yet it still holds its slot and still counts against a cap. Printing (int)NaN gives
+                // -2147483648, which reads as a coordinate; printing "NaN" says what it is.
+                bool badPos = !float.IsFinite(n.position.X) || !float.IsFinite(n.position.Y);
+
                 rows.Add(string.Join("\t",
                     i, zone, n.type, n.netID, cat, CategoryRoute(n),
                     SegmentChain.IsMember(i) ? SegmentChain.CategoryOf(i).ToString() : "-",
                     n.life, n.lifeMax, n.realLife, n.aiStyle, flags,
-                    (int)(n.Center.X / 16f), (int)(n.Center.Y / 16f), n.timeLeft,
+                    Tile(n.Center.X), Tile(n.Center.Y), n.timeLeft,
                     n.ModNPC?.Mod?.Name ?? "Terraria", SafeName(n)));
+
+                if (!over && n.realLife >= 0)
+                {
+                    bodies.TryGetValue(n.realLife, out var b);
+                    bodies[n.realLife] = (b.parts + 1,
+                                          b.broken + (badPos ? 1 : 0),
+                                          b.parts == 0 ? i : Math.Min(b.lowest, i),
+                                          n.whoAmI == n.realLife ? n.type : b.headType);
+                }
 
                 // Anomalies. Each of these is a state that should be impossible, phrased so the line itself
                 // says which rule was broken.
@@ -855,6 +910,10 @@ namespace ManyMoreMobs
                 // the same non-bug on every dump, which is how a report stops being read.
                 if (over)
                     notes.Add($"DUMMY_SLOT\tslot={i}\ttype={n.type}\tnetID={n.netID}\t'{SafeName(n)}'\tlife={n.life}\ttimeLeft={n.timeLeft}");
+                if (badPos)
+                    problems.Add($"BAD_POSITION\tslot={i}\ttype={n.type}\t'{SafeName(n)}'\trealLife={n.realLife}\t" +
+                                 $"ai0={(int)n.ai[0]}\tai1={(int)n.ai[1]}\t(NaN position: invisible, immovable, still holding a slot. " +
+                                 "A body part that first updated exactly on top of the part in front of it does this — see /mmm info)");
                 if (n.whoAmI != i)
                     problems.Add($"WHOAMI_MISMATCH\tslot={i}\twhoAmI={n.whoAmI}\ttype={n.type}\t'{SafeName(n)}'");
                 if (cat == NpcCategory.Town && !over && i >= 200)
@@ -899,6 +958,22 @@ namespace ManyMoreMobs
                     sb.AppendLine(n + "\t(vanilla: a blocked NPC.SpawnNPC still SetDefaults() the failure slot, which activates it; inert, outside every loop)");
             }
 
+            if (bodies.Count > 0)
+            {
+                sb.AppendLine($"--- multi-part bodies ({bodies.Count}) ---");
+                sb.AppendLine("root\theadType\tname\tparts\tbroken\tlowestSlot\tverdict");
+                foreach (var kv in bodies.OrderBy(k => k.Key))
+                {
+                    var b = kv.Value;
+                    string verdict = b.broken > 0
+                        ? $"BROKEN — {b.broken} of {b.parts} part(s) have a NaN position"
+                        : b.lowest < kv.Key
+                            ? "ok, but built below its head (parts update before it, so the body trails a frame per part)"
+                            : "ok";
+                    sb.AppendLine($"{kv.Key}\t{b.headType}\t{Lang.GetNPCNameValue(b.headType)}\t{b.parts}\t{b.broken}\t{b.lowest}\t{verdict}");
+                }
+            }
+
             sb.AppendLine($"--- anomalies ({problems.Count}) ---");
             foreach (string p in problems.Take(50))
                 sb.AppendLine(p);
@@ -912,6 +987,10 @@ namespace ManyMoreMobs
 
             return sb.ToString();
         }
+
+        /// <summary>Tile coordinate for the dump, or "NaN" — printing (int)NaN as -2147483648 hides the fault.</summary>
+        private static string Tile(float worldCoord)
+            => float.IsFinite(worldCoord) ? ((int)(worldCoord / 16f)).ToString() : "NaN";
 
         private static void AppendCapLine(StringBuilder sb, string name, int count, int cap)
             => sb.AppendLine($"cap.{name}\t{count}/{cap}{(count > cap ? "\tOVER (expected only when multi-part bodies bypassed the ceiling)" : "")}");
